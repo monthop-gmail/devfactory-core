@@ -1,0 +1,33 @@
+name: Governance or architecture change
+about: Propose changes that affect policy, risk, approvals, or architecture direction
+labels: [governance, architecture]
+body:
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the change and intended outcome
+    validations:
+      required: true
+
+  - type: textarea
+    id: alignment
+    attributes:
+      label: Direction-lock alignment
+      description: Explain alignment with governance-first architecture and plane separation
+    validations:
+      required: true
+
+  - type: textarea
+    id: risk
+    attributes:
+      label: Risk and approval impact
+      description: What risks are introduced? Any human-in-the-loop requirement changes?
+    validations:
+      required: true
+
+  - type: input
+    id: rfc
+    attributes:
+      label: Related RFC (optional)
+      placeholder: rfcs/xxxx-*.md
