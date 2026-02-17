@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Contribution guide
+    url: https://github.com/monthop-gmail/devfactory-core/blob/main/CONTRIBUTING.md
+    about: Read contribution conventions before opening an issue.

@@ -1,0 +1,55 @@
+name: Bug report
+about: Report a defect that is reproducible and impacts expected behavior
+labels: [bug]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Problem summary
+      description: What happened vs what should happen?
+      placeholder: Actual behavior / Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Provide exact steps, inputs, and data needed to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: plane
+    attributes:
+      label: Affected plane
+      options:
+        - Control Plane
+        - Orchestration Plane
+        - Execution Plane
+        - Observability Plane
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Suggested priority
+      description: Use triage matrix from docs/issue-triage.md
+      options:
+        - P0
+        - P1
+        - P2
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Runtime, versions, deployment context
+      placeholder: OS / versions / branch / commit
