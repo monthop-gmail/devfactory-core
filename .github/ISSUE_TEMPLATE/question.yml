@@ -1,0 +1,28 @@
+name: Question
+about: Ask a scoped implementation or architecture question
+labels: [question]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What do you need clarified?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Relevant files, docs, links, and constraints
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Related area
+      options:
+        - Core State Machine
+        - Governance Engine
+        - Orchestration Foundation
+        - Observability
+        - Documentation / Process

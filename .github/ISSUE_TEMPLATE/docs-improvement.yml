@@ -1,0 +1,36 @@
+name: Docs improvement
+about: Suggest documentation fixes or improvements
+labels: [docs]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Documentation problem
+      description: What is missing, unclear, or incorrect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: location
+    attributes:
+      label: Affected files/sections
+      description: List files or URLs if known
+      placeholder: docs/roadmap.md, README.md, ...
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed improvement
+      description: What should be changed?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Suggested priority
+      options:
+        - P1
+        - P2
+    validations:
+      required: true
