@@ -68,3 +68,15 @@ This project IS:
 - Multi-provider orchestration platform
 
 All contributions must align with this direction.
+
+---
+
+## Governance References
+
+Before opening or reviewing a PR, please read:
+
+- [Project North Star](docs/governance/README_NORTH_STAR.md) — why this project exists
+- [Core Boundary](docs/governance/CORE_BOUNDARY.md) — what is and isn't allowed in v0.x
+- [Milestone v0.1](docs/governance/MILESTONE_v0.1.md) — definition of done for the current milestone
+
+These documents are the standard basis for accepting or rejecting contributions.
