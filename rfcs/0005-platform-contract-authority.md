@@ -108,10 +108,13 @@ so explicitly; the job level is not the platform's to define.
    [consumer analysis §4.6](https://github.com/monthop-gmail/agent-platform/blob/main/architecture/consumer-devfactory-core.md):
    RFC-0002 is not "missing" those fields, it is silent about them by design.
 
-2. **Semantic changes require an RFC here first.** Any of the following is a
-   semantic change and must be accepted as an RFC in this repository before an
-   ADR in `agent-platform` may implement it:
-   - adding, removing, or renaming a decision type or event type
+2. **Semantic changes require an RFC here first.**
+   **Amended by [RFC-0009](0009-vocabulary-extension.md) — adding an event type is
+   additive and belongs to `agent-platform` under Rule 1. Read RFC-0009 for the
+   amended list.** Any of the following is a semantic change and must be accepted
+   as an RFC in this repository before an ADR in `agent-platform` may implement it:
+   - ~~adding,~~ removing, or renaming a decision type or event type · adding a
+     decision type
    - weakening or removing a stated guarantee
    - making a semantically required field optional, or the reverse
    - changing what an existing decision, event, or state *means*
