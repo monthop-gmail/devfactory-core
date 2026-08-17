@@ -10,8 +10,11 @@ Architecture changes require an RFC before implementation.
 Core:
 - State machine
 - Governance engine
-- Provider proxy
+- Provider proxy (internal, outbound — `packages/provider-proxy`; not the ecosystem `model-gateway`)
 - Orchestration engine
+- Control API (internal, inbound — `apps/control-api`)
+
+Module direction and scope are set by [RFC-0005](rfcs/0005-platform-contract-authority.md).
 
 Extension:
 - New agents

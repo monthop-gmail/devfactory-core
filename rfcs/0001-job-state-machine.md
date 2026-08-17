@@ -3,6 +3,10 @@
 ## Status
 Draft
 
+**Amended by [RFC-0007](0007-job-lifecycle-completeness.md)** — adds `CANCELLED`,
+`TIMED_OUT`, and `AWAITING_APPROVAL`, and resolves both Open Questions below.
+Read the two together; RFC-0007 supersedes this document where they differ.
+
 ## Context
 devfactory-core is a governance-first control plane.
 A deterministic job lifecycle is required to ensure governance,
@@ -53,9 +57,11 @@ Without a shared and explicit job lifecycle:
 - Agent-controlled lifecycle (rejected)
 
 ## Open Questions
-- Retry semantics for FAILED
-- Parallel task substates
+- ~~Retry semantics for FAILED~~ — resolved by [RFC-0007](0007-job-lifecycle-completeness.md):
+  retry is execution-level only; job-level recovery is a new job with `supersedes_job_id`.
+- ~~Parallel task substates~~ — resolved by [RFC-0007](0007-job-lifecycle-completeness.md):
+  modelled as child executions in `execution/v1`, not as job substates.
 
 ## Future Work
-- Task-level state machine
-- SLA / timeout policies
+- Task-level state machine — covered at the layer below by `contracts/execution/v1`
+- SLA / timeout policies — the `TIMED_OUT` state exists per RFC-0007; the policy values do not yet

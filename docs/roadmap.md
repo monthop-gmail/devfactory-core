@@ -17,6 +17,6 @@
 
 ## Cross-cutting: Issue Operations
 - Standardize issue triage with `docs/issue-triage.md`.
-- Enforce structured issue forms and labels (`bug`, `docs`, `question`, `governance`, `architecture`).
+- Enforce structured issue forms and labels (`bug`, `documentation`, `enhancement`, `question`, `governance`, `architecture`).
 - Use priority classes (P0/P1/P2).
 - Ensure issues map to roadmap phases or direction-lock decisions.

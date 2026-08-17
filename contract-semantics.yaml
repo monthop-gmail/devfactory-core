@@ -1,0 +1,207 @@
+# Semantics manifest — สิ่งที่ devfactory-core เป็นเจ้าของและ agent-platform ห้ามเปลี่ยนเอง
+#
+# ทำไมมีไฟล์นี้:
+#   rfcs/0005 แยก authority เป็น semantics (repo นี้) กับ wire schema (agent-platform)
+#   ไฟล์นี้คือครึ่ง semantics ในรูปที่เครื่องอ่านได้ เพื่อให้ agent-platform
+#   ไม่ต้องอ่าน prose 4 ไฟล์แล้วตีความเองว่าอะไรแตะได้อะไรแตะไม่ได้
+#
+# ⚠️ ไฟล์นี้ไม่ใช่ schema และห้ามใช้เป็น schema
+#   ไม่มี field type · ไม่มีโครงสร้าง · ไม่มี validation
+#   rfcs/0005 Rule 4 ห้าม repo นี้มี schema ขนานกับของ agent-platform
+#   ที่นี่มีแค่ vocabulary · guarantee · invariant — ส่วนรูปร่างบน wire เป็นของ agent-platform
+#
+# ที่มาฉบับเต็มเป็น prose อยู่ใน rfcs/ — ถ้าไฟล์นี้ขัดกับ RFC ให้ถือ RFC เป็นหลัก
+# แล้วเปิด issue เพราะแปลว่าไฟล์นี้ผิด
+
+semantics_version: "1.0"
+owner: devfactory-core
+authority: rfcs/0005-platform-contract-authority.md
+license: MIT
+
+# ─────────────────────────────────────────────────────────────
+# วิธีตรวจ drift
+# ─────────────────────────────────────────────────────────────
+# ห้าม pin commit SHA ของไฟล์ RFC เพื่อตรวจ drift — RFC เป็น prose
+# การแก้คำผิดจะทำให้ SHA เปลี่ยนและปลุก alarm โดยไม่มีอะไร drift จริง
+# ส่วนการเปลี่ยน enum ที่ frozen ก็ทำให้ SHA เปลี่ยนเท่ากัน แยกกันไม่ออก
+#
+# ให้ pin `semantics_version` ของไฟล์นี้แทน:
+#   - แก้ prose / เพิ่มคำอธิบาย / จัดรูปแบบ  → version ไม่ขยับ
+#   - แตะอะไรใน `frozen:` ก็ตาม             → version ขยับ major และต้องมี RFC ก่อน (Rule 2)
+#
+# ถ้าอยาก check อัตโนมัติใน CI ให้ hash เฉพาะ subtree `frozen:` ของแต่ละ contract
+# แล้วเทียบกับค่าที่บันทึกไว้ — hash เปลี่ยนโดย version ไม่ขยับ = เราทำผิดกฎ ให้ fail ได้เลย
+
+drift_check:
+  pin: semantics_version
+  do_not_pin: commit SHA ของไฟล์ RFC
+  hash_scope: frozen   # subtree ที่ควร hash ถ้าจะ check อัตโนมัติ
+
+# ─────────────────────────────────────────────────────────────
+# บล็อกที่ agent-platform ก๊อปไปใส่ contracts/<name>/ ได้เลย
+# ─────────────────────────────────────────────────────────────
+# rfcs/0005 Rule 3 บังคับว่า contract ที่ derive มาต้องบอกที่มา
+# เราเป็นคนตั้งกฎนี้ จึงให้รูปแบบมาด้วย ไม่ปล่อยให้ออกแบบเอง
+
+derived_from_block_template: |
+  # ใส่ใน contracts/approval/ และ contracts/event/
+  derived_from:
+    repo: monthop-gmail/devfactory-core
+    manifest: contract-semantics.yaml
+    semantics_version: "1.0"
+    rfcs:
+      - rfcs/0002-governance-decision-contract.md
+    license: MIT
+    # ตรวจ drift โดยเทียบ semantics_version ไม่ใช่ SHA ของไฟล์ RFC
+
+# ─────────────────────────────────────────────────────────────
+# contract ที่ derive จาก repo นี้ — semantics เป็นของเรา schema เป็นของ agent-platform
+# ─────────────────────────────────────────────────────────────
+
+contracts:
+
+  approval:
+    status: unblocked          # rfcs/0005 ปิดเรื่อง authority แล้ว เขียน schema ได้
+    source:
+      - rfcs/0002-governance-decision-contract.md
+
+    frozen:
+      # เปลี่ยนอะไรในบล็อกนี้ต้องมี RFC ที่ repo นี้ก่อน
+      decision_types:
+        - APPROVE
+        - REJECT
+        - REQUIRE_CHANGES
+
+      required_meaning:
+        # "ความหมายที่ต้องมี" ไม่ใช่ชื่อ field — ชื่อกับ type เป็นของ agent-platform
+        - คำตัดสิน (decision)
+        - เหตุผลที่ตัดสินอย่างนั้น (reason)
+        - ผู้มีอำนาจที่รับผิดชอบคำตัดสินนี้ (authority)
+        - เวลาที่ตัดสิน (timestamp)
+
+      guarantees:
+        - decision เป็น immutable — แก้ไม่ได้หลังบันทึก
+        - ทุก APPROVE ต้อง auditable
+        - execution ที่ไม่มี APPROVE เป็นสิ่งที่ห้าม
+
+      invariants:
+        - approval ไม่ใช่ policy — policy ตอบว่า "ต้องขออนุมัติไหม" · approval คือคำตัดสินของผู้มีอำนาจ
+        - decision ต้องอยู่ tenant เดียวกับสิ่งที่มันอนุมัติ · ต่าง tenant = invalid ให้ reject ไม่ใช่ coerce (rfcs/0006)
+        - agent ออก APPROVE ให้งานของตัวเองไม่ได้ — "no agent has total authority"
+        - REQUIRE_CHANGES ไม่ใช่ REJECT — งานยังมีชีวิตและกลับมายื่นใหม่ได้
+
+    platform_may_add_freely:
+      # เพิ่มได้ผ่าน ADR ฝั่ง agent-platform อย่างเดียว ไม่ต้องมี RFC ที่นี่ (Rule 1)
+      # ปิดประเด็น §4.6 ของ consumer-devfactory-core.md — rfcs/0002 ไม่ได้ "ขาด" field เหล่านี้
+      # มันเงียบเรื่องนี้โดยเจตนา เพราะเป็นเรื่องระดับ platform ไม่ใช่ระดับความหมาย
+      - tenant_id
+      - workspace_id
+      - execution_id
+      - agent_id
+      - policy_id
+      - expires_at
+      - action_risk
+      - escalation_target
+      - อื่น ๆ ที่ไม่เปลี่ยนความหมายของคำตัดสิน
+
+  event:
+    status: unblocked
+    source:
+      - rfcs/0003-audit-event-log-schema.md
+      - rfcs/0008-external-event-intake.md     # amend 0003
+
+    frozen:
+      event_types:
+        - JOB_CREATED
+        - STATE_TRANSITION
+        - GOVERNANCE_DECISION
+        - TASK_ASSIGNED
+        - EXECUTION_STARTED
+        - EXECUTION_FAILED
+        - JOB_COMPLETED
+
+      guarantees:
+        - event เป็น append-only
+        - no silent state change — ทุกการเปลี่ยน state ต้องมี event
+
+      invariants:
+        - ทุก event ต้องตอบได้ว่า "เกี่ยวกับอะไร" — subject จำเป็นเสมอ ส่วน job_id optional
+        - ห้ามสร้าง job_id ปลอมหรือ default ให้ event ที่ไม่มี job · ไม่มีคือไม่มี
+        - event ที่ resolve tenant ไม่ได้ ให้ reject ที่ intake ห้ามเดา tenant ให้
+        - event ที่ devfactory-core ส่งออกต้องมี job_id เสมอ — optional ใน schema ไม่ใช่ optional ในพฤติกรรม
+        - external event ต้องคง source ไว้ให้รู้ตลอดไปว่ามาจากข้างนอก
+        - ห้ามเก็บ private reasoning / chain-of-thought เป็น audit record — เก็บ structured metadata แทน
+        - trace ที่ไม่มี step ย่อยถือว่าถูกต้อง · execution ที่ไม่มี step event ไม่ได้แปลว่ามันไม่ได้ทำอะไร
+        - event type ใหม่ที่ไม่อยู่ในลิสต์ = semantic change ต้องมี RFC ที่นี่ก่อน (Rule 2)
+
+    platform_may_add_freely:
+      - tenant_id
+      - workspace_id
+      - correlation_id
+      - subject_type / subject_id  # rfcs/0008 ต้องการให้มี ส่วนชื่อและ enum เป็นของ agent-platform
+      - cost attribution
+      - trace / span identifier
+      - อื่น ๆ ที่ไม่เปลี่ยนความหมายของ event
+
+# ─────────────────────────────────────────────────────────────
+# ไม่ derive — authority อยู่ที่ repo นี้ทั้งดุ้น
+# ─────────────────────────────────────────────────────────────
+# agent-platform อ้างอิงได้ แต่ redefine ไม่ได้ (rfcs/0005)
+
+not_derived:
+
+  job_state_machine:
+    source:
+      - rfcs/0001-job-state-machine.md
+      - rfcs/0007-job-lifecycle-completeness.md   # amend 0001
+    note: >-
+      ให้ vocabulary ไว้เพื่อให้ execution/v1 อ้างความหมายของ job state ได้
+      โดยไม่ต้องคาดเดา — คำเตือน external-authority-pending ใน execution.schema.yaml
+      ที่ field job_id เอาออกได้แล้ว
+    states:
+      - DRAFT
+      - GOVERNANCE_ANALYSIS
+      - APPROVED
+      - REJECTED
+      - TASK_PLANNING
+      - IN_PROGRESS
+      - AWAITING_APPROVAL
+      - VALIDATING
+      - DEPLOYABLE
+      - COMPLETED
+      - FAILED
+      - CANCELLED
+      - TIMED_OUT
+    terminal: [COMPLETED, FAILED, CANCELLED, TIMED_OUT]
+    invariants:
+      - execution ห้ามเกิดก่อน APPROVED
+      - REJECTED ไม่ terminal — กลับไป DRAFT ได้
+      - FAILED terminal ที่ระดับ job · retry อยู่ที่ระดับ execution เท่านั้น
+      - recovery ของ job ที่ FAILED = job ใหม่ที่มี supersedes_job_id ไม่ใช่ปลุกตัวเดิม
+      - job ไม่เข้า FAILED เพราะ execution เดียวล้ม — orchestration ต้อง exhaust retry ก่อน
+      - AWAITING_APPROVAL คนละอย่างกับ GOVERNANCE_ANALYSIS — อันหลังคือประตูก่อนเริ่มงาน
+      - FAILED · CANCELLED · TIMED_OUT ต้องมี reason metadata
+    layering: job (ที่นี่) > execution (execution/v1) > step (event/)
+
+  orchestration_execution_boundary:
+    source:
+      - rfcs/0004-orchestration-execution-boundary.md
+    note: ยกไปใช้ได้ทั้งดุ้นโดยไม่ต้องแก้ — ตรงกับ ADR-0005 ฝั่ง agent-platform แล้ว
+    forbidden:
+      - execution ตัดสิน governance เอง
+      - orchestration แก้ artifact โดยตรง
+
+# ─────────────────────────────────────────────────────────────
+# rfcs/0005 Rule 2 — 5 ประเภทนี้ต้องมี RFC ที่ repo นี้ก่อน แล้วจึงทำ ADR ฝั่ง agent-platform
+# ─────────────────────────────────────────────────────────────
+semantic_change_classes:
+  - เพิ่ม ลบ หรือเปลี่ยนชื่อ decision type หรือ event type
+  - ลดหรือถอน guarantee ข้อใดข้อหนึ่ง
+  - เปลี่ยน field ที่มีความหมายจาก required เป็น optional หรือกลับกัน
+  - เปลี่ยนความหมายของ decision · event · หรือ state ที่มีอยู่แล้ว
+  - เปิดทางให้ execution เดินได้โดยไม่มี APPROVE
+
+escalation:
+  semantics: Architecture Owner ของ devfactory-core ตัดสินสุดท้าย
+  wire_schema: Architecture Owner ของ agent-platform ตัดสินสุดท้าย
+  rule: ไม่มีใครตัดสินครึ่งของอีกฝ่ายได้เอง — เปิด issue ทั้งสอง repo
