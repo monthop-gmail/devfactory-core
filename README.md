@@ -80,3 +80,14 @@ Before opening or reviewing a PR, please read:
 - [Milestone v0.1](docs/governance/MILESTONE_v0.1.md) — definition of done for the current milestone
 
 These documents are the standard basis for accepting or rejecting contributions.
+
+Path ownership is declared in [`.github/CODEOWNERS`](.github/CODEOWNERS) — `rfcs/`
+and the governance documents are owned by the Architecture Owner, per `GOVERNANCE.md`.
+
+---
+
+## License
+
+[MIT](LICENSE) — the same license as
+[`agent-platform`](https://github.com/monthop-gmail/agent-platform), which derives
+canonical ecosystem contracts from the RFCs in this repository.
