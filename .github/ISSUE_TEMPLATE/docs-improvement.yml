@@ -1,6 +1,6 @@
 name: Docs improvement
 about: Suggest documentation fixes or improvements
-labels: [docs]
+labels: [documentation]
 body:
   - type: textarea
     id: problem
