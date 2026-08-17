@@ -119,20 +119,66 @@ so explicitly; the job level is not the platform's to define.
 
 3. **Every derived contract carries its provenance.** Each of
    `contracts/approval/` and `contracts/event/` must record a `derived_from`
-   pointer naming the RFC file **and the commit SHA** it was derived from. Drift
-   is then a mechanical check — compare the pointer against this repository's
-   `main` — rather than a matter of trust. A contract whose pointer no longer
-   resolves is out of conformance regardless of what its `CHANGELOG.md` says.
+   pointer naming this repository, `contract-semantics.yaml`, and the
+   `semantics_version` it was derived from. Drift is then a mechanical check
+   rather than a matter of trust. A contract whose pointer names a superseded
+   `semantics_version` is out of conformance regardless of what its
+   `CHANGELOG.md` says.
+
+   The pointer names the manifest version rather than a commit SHA of the RFC
+   files, and the difference matters. RFCs are prose: fixing a typo changes their
+   SHA without changing anything semantic, and changing a frozen enum changes it
+   by exactly the same amount. A SHA cannot tell those apart, so it would raise
+   false alarms for edits that carry no meaning while giving no stronger signal
+   for edits that do. `semantics_version` moves only when the `frozen` block
+   moves, which is the event worth detecting.
 
 4. **No parallel schema here.** This repository consumes the published schema as
    the single wire format and does not maintain its own. Our RFCs are intent
    specifications; they are not serialization formats and must not be read as
-   such.
+   such. `contract-semantics.yaml` is bound by the same rule — it carries
+   vocabulary, guarantees, and invariants, and deliberately carries no field
+   types, structure, or validation.
 
 5. **Escalation is explicit.** Disagreement is raised as an issue in both
    repositories. The Architecture Owner of this repository has final say on
    semantics; the Architecture Owner of `agent-platform` has final say on schema
    shape and versioning. Neither may resolve the other's half unilaterally.
+
+### `rfcs/` versus `decisions/`
+
+The upstream extraction document asks this repository to confirm the scope rule
+for the two directories, since both hold architectural decisions under different
+names. Confirmed as proposed:
+
+- `agent-platform/decisions/` — ADRs binding across the ecosystem
+- `devfactory-core/rfcs/` — specifications internal to this repository
+
+An ADR may cite an RFC. An RFC may not change a central contract; it changes what
+that contract must mean, and `agent-platform` implements the change. This is the
+same split as Rules 1 and 2, stated in directory terms.
+
+### The semantics half, in machine-readable form
+
+Rules 1 through 3 are only usable if the boundary they describe can be read
+without interpretation. `contract-semantics.yaml` at the repository root carries
+it: for each derived contract, a `frozen` block — the vocabulary, the guarantees,
+the invariants — and a `platform_may_add_freely` list.
+
+It exists so that writing `approval/v1` and `event/v1` does not require reading
+four prose RFCs and inferring which parts are load-bearing. It also gives the
+drift check something stable to compare, and supplies the `derived_from` template
+so the format is not left to be reinvented downstream.
+
+It is not a schema and must not be used as one, per Rule 4. Where it disagrees
+with an RFC, the RFC governs and the manifest is the defect.
+
+The manifest additionally publishes the job state vocabulary from
+[RFC-0001](0001-job-state-machine.md) and
+[RFC-0007](0007-job-lifecycle-completeness.md) even though no contract derives
+from it, because `execution/v1` currently carries an
+`external-authority-pending` warning on its `job_id` field for want of exactly
+that. Publishing the vocabulary lets the warning be removed.
 
 ### Why this over the binary options
 
@@ -210,7 +256,8 @@ They are pinned when `agent-platform` publishes them.
 | risk | severity | mitigation |
 | --- | --- | --- |
 | "Semantic vs additive" is argued case by case and the boundary erodes | medium | Rule 2 lists the five semantic-change classes explicitly; anything on that list is semantic by definition, not by debate |
-| `derived_from` pointers go stale and nobody notices | medium | The pointer includes a commit SHA, making staleness mechanically detectable; a stale pointer is a conformance failure |
+| `derived_from` pointers go stale and nobody notices | medium | The pointer names a `semantics_version` that moves only when the `frozen` block moves, so staleness is mechanically detectable and prose edits do not produce false alarms; a stale pointer is a conformance failure |
+| `semantics_version` is not bumped when the `frozen` block changes | medium | `contract-semantics.yaml` names `frozen` as the hash scope, so a hash change without a version bump is detectable upstream and should fail their check — the manifest says so explicitly |
 | Two owners means a change needing both stalls | low | Rule 5 splits final say by subject, so neither half can be blocked by the other's silence on a matter outside it |
 | `provider-proxy` grows into a de facto shared `model-gateway` anyway | medium | Decision 2 forbids exposing it to other repositories; a request from another repo is the signal to build `model-gateway` instead |
 | Renaming later, once code exists, is expensive | low | Both renames land now, while the modules are one-line READMEs |
@@ -219,8 +266,8 @@ They are pinned when `agent-platform` publishes them.
 
 1. Accept this RFC (maintainer approval per `GOVERNANCE.md`).
 2. `git mv packages/proxy packages/provider-proxy` · `git mv apps/api-gateway apps/control-api`; update both READMEs to state direction and internal scope; update `CONTRIBUTING.md`. **Included in this change.**
-3. Add `platform-contract.yaml`. **Included in this change.**
-4. `agent-platform` records the ownership half of ADR-0006 as accepted with this split, and adds `derived_from` pointers to `contracts/approval/` and `contracts/event/`.
+3. Add `platform-contract.yaml` and `contract-semantics.yaml`. **Included in this change.**
+4. `agent-platform` records the ownership half of ADR-0006 as accepted with this split, and adds `derived_from` pointers to `contracts/approval/` and `contracts/event/` using the template in `contract-semantics.yaml`.
 5. `agent-platform` publishes `approval/v1` and `event/v1`.
 6. This repository pins both in `platform-contract.yaml`.
 7. `conformance.status` moves off `unknown` only when code produces real payloads and CI validates them — no earlier.
@@ -232,6 +279,8 @@ RFC is accepted.
 - Does `agent-platform` want the `derived_from` pointer checked automatically in
   CI, or is a manual check at contract-change time enough? Either satisfies
   Rule 3; the automated version is upstream's call since the check runs there.
+  `contract-semantics.yaml` names `frozen` as the hash scope either way, so the
+  automated form needs no further agreement from this side.
 - When `model-gateway` is built, does `packages/provider-proxy` disappear
   entirely or remain as an internal adapter? Deferred until `model-gateway`
   exists — deciding now would be speculation.

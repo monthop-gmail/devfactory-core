@@ -31,4 +31,5 @@ This repository consumes shared contracts from
 [`agent-platform`](https://github.com/monthop-gmail/agent-platform) and retains
 authority over the semantics of its own RFCs. Pinned contracts and conformance
 status: [`platform-contract.yaml`](platform-contract.yaml) ·
+semantics this repository owns: [`contract-semantics.yaml`](contract-semantics.yaml) ·
 rationale: [RFC-0005](rfcs/0005-platform-contract-authority.md)

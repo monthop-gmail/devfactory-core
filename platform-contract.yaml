@@ -4,6 +4,8 @@
 #   https://github.com/monthop-gmail/agent-platform/blob/main/decisions/0006-contract-versioning.md
 # เหตุผลและขอบเขต authority ตาม RFC-0005:
 #   rfcs/0005-platform-contract-authority.md
+# semantics ที่ repo นี้เป็นเจ้าของ (สำหรับ agent-platform ใช้ derive contract):
+#   contract-semantics.yaml
 
 platform_contract_version: "0.1"
 
