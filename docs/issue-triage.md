@@ -5,9 +5,9 @@ This guide defines a lightweight process for handling incoming GitHub issues in 
 ## 1) Intake
 - Confirm the issue is reproducible.
 - Collect: expected behavior, actual behavior, reproduction steps, and environment.
-- Tag with one of: `bug`, `docs`, `architecture`, `governance`, `question`.
+- Tag with one of: `bug`, `documentation`, `enhancement`, `architecture`, `governance`, `question`.
 - Prefer structured issue forms in `.github/ISSUE_TEMPLATE/*.yml` to normalize inputs.
-- Ensure labels are from the supported set: `bug`, `docs`, `architecture`, `governance`, `question`.
+- Ensure labels are from the supported set: `bug`, `documentation`, `enhancement`, `architecture`, `governance`, `question`.
 
 ### Intake from restricted environments
 If GitHub API access is blocked (e.g., `403` from unauthenticated requests):
