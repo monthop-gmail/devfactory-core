@@ -1,0 +1,27 @@
+# Code owners — ทำให้ authority ใน GOVERNANCE.md มีผลจริง ไม่ใช่แค่เขียนในเอกสาร
+#
+# GOVERNANCE.md ระบุว่า Architecture Owner มีอำนาจตัดสินสุดท้ายเรื่อง system direction
+# และ CONTRIBUTING.md ระบุว่า architecture change ต้องมี RFC ก่อน
+# ไฟล์นี้ทำให้ path ที่ถือ authority นั้นถูก request review อัตโนมัติ
+#
+# หมายเหตุ: CODEOWNERS จะบังคับให้ต้อง review ก่อน merge ได้จริง
+# ต่อเมื่อเปิด branch protection + "Require review from Code Owners" บน main
+# ตอนนี้ยังไม่เปิด — ไฟล์นี้จึงทำหน้าที่ auto-request reviewer เท่านั้น
+
+# ค่าเริ่มต้น
+*                           @monthop-gmail
+
+# ผูกพัน — เปลี่ยนได้ผ่าน RFC เท่านั้น (CONTRIBUTING.md Design First Rule)
+/rfcs/                      @monthop-gmail
+
+# semantics ที่ agent-platform derive contract ไปใช้ — ดู rfcs/0005
+# การแก้ที่นี่ทำให้ contract กลางของ ecosystem drift ได้
+/contract-semantics.yaml     @monthop-gmail
+
+# กติกา governance ของ repo เอง
+/GOVERNANCE.md              @monthop-gmail
+/CONTRIBUTING.md            @monthop-gmail
+/docs/governance/           @monthop-gmail
+
+# manifest ที่ agent-platform อ่านเพื่อทำ consumer registry
+/platform-contract.yaml     @monthop-gmail
