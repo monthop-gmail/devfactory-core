@@ -1,0 +1,85 @@
+# Consumer manifest — ประกาศว่า repo นี้ยึด contract อะไรของ agent-platform
+#
+# รูปแบบตาม ADR-0006:
+#   https://github.com/monthop-gmail/agent-platform/blob/main/decisions/0006-contract-versioning.md
+# เหตุผลและขอบเขต authority ตาม RFC-0005:
+#   rfcs/0005-platform-contract-authority.md
+
+platform_contract_version: "0.1"
+
+contracts:
+  - identity/v1     # tenant · workspace · principal (RFC-0006)
+  - execution/v1    # execution ชั้นล่างของ job state machine (RFC-0001 + RFC-0007)
+  - policy/v1       # policy decision — คนละอย่างกับ approval
+  - error/v1
+
+  # ยังไม่ pin เพราะ schema ยังไม่ถูกเขียน — ไม่ใช่เพราะ authority ค้างแล้ว
+  # RFC-0005 ตัดสินเรื่อง authority จบแล้ว (semantics อยู่ที่ repo นี้ · schema อยู่ที่ platform)
+  # pin ทันทีที่ agent-platform publish
+  #   approval/v1   ← derive จาก rfcs/0002 (semantics เป็นของ repo นี้)
+  #   event/v1      ← derive จาก rfcs/0003 + rfcs/0008 (semantics เป็นของ repo นี้)
+
+conformance:
+  status: unknown
+  last_verified: null
+
+  # ทำไมเป็น unknown ไม่ใช่ passing:
+  # ADR-0006 บังคับ consumer 3 ข้อ — manifest · conformance test ใน CI ที่ validate payload จริง ·
+  # release gate  ·  repo นี้มีข้อแรกได้ แต่อีก 2 ข้อยังไม่ได้เพราะ packages/* ยังไม่มี code
+  # จึงไม่มี payload จริงให้ validate  ·  ตาม ADR-0006 สถานะที่ไม่เคยรัน test = unknown
+  # จะเปลี่ยนเป็น passing ได้เมื่อมี code ที่ผลิต payload จริงและ CI validate ผ่านเท่านั้น
+
+# ช่องว่างจาก consumer pilot ของ agent-platform และ RFC ที่ปิดแต่ละข้อ
+# รายละเอียดเต็ม: agent-platform/architecture/consumer-devfactory-core.md
+# ติดตามที่ issue #8
+blocking:
+  - id: tenant-model
+    detail: >-
+      ไม่มี tenant/workspace ในเอกสารใดเลย แต่ ADR-0007 กำหนดให้ tenant_id
+      เป็น required ทุก contract
+    severity: high
+    resolved_by: rfcs/0006-tenant-workspace-model.md
+    status: specified   # เอกสารครบแล้ว · ยังไม่มี code
+
+  - id: job-retry-semantics
+    detail: >-
+      RFC-0001 ระบุ "FAILED is terminal" ส่วน execution/v1 retry ได้
+      ระดับ job ยังไม่มีคำตอบ (RFC-0001 เขียน Open Question ข้อนี้ไว้เอง)
+    severity: medium
+    resolved_by: rfcs/0007-job-lifecycle-completeness.md
+    status: specified   # FAILED ยัง terminal · recovery = job ใหม่ที่มี supersedes_job_id
+
+  - id: missing-terminal-states
+    detail: RFC-0001 ไม่มี cancelled และ timed_out ซึ่ง execution/v1 มี
+    severity: medium
+    resolved_by: rfcs/0007-job-lifecycle-completeness.md
+    status: specified   # เพิ่ม CANCELLED และ TIMED_OUT เป็น terminal ระดับ job
+
+  - id: mid-run-approval-invisible
+    detail: >-
+      execution ที่เข้า awaiting_approval กลางคัน ไม่มีวิธีแสดงที่ระดับ job
+      — job ยังเป็น IN_PROGRESS เฉย ๆ มองไม่ออกว่ากำลังรอคน
+    severity: medium
+    resolved_by: rfcs/0007-job-lifecycle-completeness.md
+    status: specified   # เพิ่ม state AWAITING_APPROVAL + field awaiting_from
+
+  - id: event-job-id-required
+    detail: >-
+      RFC-0003 บังคับ job_id แต่ event จากระบบอื่นไม่ได้เกิดจาก job เสมอ
+    severity: low
+    resolved_by: rfcs/0008-external-event-intake.md
+    status: specified   # job_id optional · subject_type/subject_id required · ห้ามสร้าง job_id ปลอม
+
+  - id: plane-naming
+    detail: >-
+      packages/proxy = "Provider proxy" (outbound) ซึ่งตรงกับ model-gateway ใน ADR-0003
+      และ apps/api-gateway ยังไม่ระบุทิศทาง
+    severity: low
+    resolved_by: rfcs/0005-platform-contract-authority.md
+    status: done        # เปลี่ยนชื่อเป็น packages/provider-proxy และ apps/control-api · internal ทั้งคู่
+
+# ที่ยังเหลือจริง ๆ ตอนนี้คือ code — ไม่ใช่เอกสาร
+remaining:
+  - conformance test ใน CI ที่ validate payload จริง (ADR-0006 ข้อ 2) — ต้องมี code ก่อน
+  - release gate ที่ fail แล้วปล่อยไม่ได้ (ADR-0006 ข้อ 3)
+  - agent-platform publish approval/v1 และ event/v1 ตาม RFC-0005 แล้ว pin เพิ่ม

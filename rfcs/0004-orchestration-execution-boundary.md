@@ -3,6 +3,10 @@
 ## Status
 Draft
 
+**Authority confirmed by [RFC-0005](0005-platform-contract-authority.md).** This
+RFC stays wholly under this repository's authority — it has no derived contract in
+`agent-platform`, which may reference it but not redefine it.
+
 ## Context
 Clear separation is required between orchestration logic
 and execution logic to avoid unsafe autonomy.
