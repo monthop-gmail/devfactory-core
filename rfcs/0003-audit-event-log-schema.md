@@ -11,6 +11,11 @@ Read the two together; RFC-0008 supersedes this document where they differ.
 repository owns the event vocabulary and guarantees; the canonical wire schema
 lives in `agent-platform` at `contracts/event/`.
 
+**[RFC-0009](0009-vocabulary-extension.md) opens the vocabulary (2026-08-18).**
+The seven types below are a *required minimum*, not a closed set — `agent-platform`
+may add new event types without an RFC here. Removing, renaming, or redefining any
+of the seven, and all eight guarantees, remain this repository's.
+
 ## Context
 Observability is required for trust and accountability.
 

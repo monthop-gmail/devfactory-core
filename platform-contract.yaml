@@ -14,12 +14,8 @@ contracts:
   - execution/v1    # execution ชั้นล่างของ job state machine (RFC-0001 + RFC-0007)
   - policy/v1       # policy decision — คนละอย่างกับ approval
   - error/v1
-
-  # ยังไม่ pin เพราะ schema ยังไม่ถูกเขียน — ไม่ใช่เพราะ authority ค้างแล้ว
-  # RFC-0005 ตัดสินเรื่อง authority จบแล้ว (semantics อยู่ที่ repo นี้ · schema อยู่ที่ platform)
-  # pin ทันทีที่ agent-platform publish
-  #   approval/v1   ← derive จาก rfcs/0002 (semantics เป็นของ repo นี้)
-  #   event/v1      ← derive จาก rfcs/0003 + rfcs/0008 (semantics เป็นของ repo นี้)
+  - approval/v1     # derive จาก rfcs/0002 — publish แล้ว 2026-08-18 (ADR-0006 C2)
+  - event/v1        # derive จาก rfcs/0003 + rfcs/0008 — publish แล้ว 2026-08-18
 
 conformance:
   status: unknown
@@ -82,6 +78,10 @@ blocking:
 
 # ที่ยังเหลือจริง ๆ ตอนนี้คือ code — ไม่ใช่เอกสาร
 remaining:
-  - conformance test ใน CI ที่ validate payload จริง (ADR-0006 ข้อ 2) — ต้องมี code ก่อน
+  - conformance test ใน CI ที่ validate payload จริง (ADR-0006 ข้อ 2) — ต้องมี code ก่อน · issue #2
   - release gate ที่ fail แล้วปล่อยไม่ได้ (ADR-0006 ข้อ 3)
-  - agent-platform publish approval/v1 และ event/v1 ตาม RFC-0005 แล้ว pin เพิ่ม
+
+# ADR-0006 นิยาม consumer ว่าต้องครบ 3 ข้อ — repo นี้มีข้อเดียว (manifest)
+# จึงเป็น "registered" ไม่ใช่ "conforming" · ข้อ 6 ใน Definition of Done ของทีมยังติ๊กไม่ได้
+# จนกว่าจะมี code ที่ผลิต payload จริง
+registration: registered   # registered | conforming

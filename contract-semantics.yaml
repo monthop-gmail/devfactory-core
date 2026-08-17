@@ -13,10 +13,15 @@
 # ที่มาฉบับเต็มเป็น prose อยู่ใน rfcs/ — ถ้าไฟล์นี้ขัดกับ RFC ให้ถือ RFC เป็นหลัก
 # แล้วเปิด issue เพราะแปลว่าไฟล์นี้ผิด
 
-semantics_version: "1.0"
+semantics_version: "1.1"
 owner: devfactory-core
 authority: rfcs/0005-platform-contract-authority.md
+amended_by: rfcs/0009-vocabulary-extension.md   # Rule 2 — เพิ่ม event type เป็น additive แล้ว
 license: MIT
+
+# 1.0 → 1.1 (2026-08-18)
+#   event_types เปลี่ยนจาก "ชุดปิด" เป็น "ขั้นต่ำที่ต้องมี" — agent-platform เพิ่มเองได้
+#   contract ที่ derive ต้องอัปเดต derived_from.semantics_version เป็น "1.1"
 
 # ─────────────────────────────────────────────────────────────
 # วิธีตรวจ drift
@@ -48,7 +53,7 @@ derived_from_block_template: |
   derived_from:
     repo: monthop-gmail/devfactory-core
     manifest: contract-semantics.yaml
-    semantics_version: "1.0"
+    semantics_version: "1.1"
     rfcs:
       - rfcs/0002-governance-decision-contract.md
     license: MIT
@@ -68,9 +73,15 @@ contracts:
     frozen:
       # เปลี่ยนอะไรในบล็อกนี้ต้องมี RFC ที่ repo นี้ก่อน
       decision_types:
-        - APPROVE
-        - REJECT
-        - REQUIRE_CHANGES
+        # ⚠️ ชุดปิด — เพิ่มค่าใหม่ก็ยังเป็น semantic change (rfcs/0009)
+        # ต่างจาก event_types โดยเจตนา: การเพิ่ม outcome ของการอนุมัติ
+        # เปิดทางให้ execution เดินได้โดยไม่มี APPROVE ของคนได้ (เช่น AUTO_APPROVE)
+        # ส่วนการเพิ่ม event type เป็นแค่การเพิ่มสิ่งที่สังเกต ไม่ลดทอน guarantee ใด
+        closed: true
+        values:
+          - APPROVE
+          - REJECT
+          - REQUIRE_CHANGES
 
       required_meaning:
         # "ความหมายที่ต้องมี" ไม่ใช่ชื่อ field — ชื่อกับ type เป็นของ agent-platform
@@ -112,13 +123,18 @@ contracts:
 
     frozen:
       event_types:
-        - JOB_CREATED
-        - STATE_TRANSITION
-        - GOVERNANCE_DECISION
-        - TASK_ASSIGNED
-        - EXECUTION_STARTED
-        - EXECUTION_FAILED
-        - JOB_COMPLETED
+        # ✅ ชุดเปิด — 7 ตัวนี้คือ "ขั้นต่ำที่ต้องมี" ไม่ใช่ชุดทั้งหมด (rfcs/0009)
+        # agent-platform เพิ่ม event type ใหม่ได้เองผ่าน ADR ฝั่งนั้น ไม่ต้องมี RFC ที่นี่
+        # แต่ ลบ · เปลี่ยนชื่อ · เปลี่ยนความหมาย ของ 7 ตัวนี้ ยังเป็น semantic change
+        closed: false
+        required_minimum:
+          - JOB_CREATED
+          - STATE_TRANSITION
+          - GOVERNANCE_DECISION
+          - TASK_ASSIGNED
+          - EXECUTION_STARTED
+          - EXECUTION_FAILED
+          - JOB_COMPLETED
 
       guarantees:
         - event เป็น append-only
@@ -132,9 +148,9 @@ contracts:
         - external event ต้องคง source ไว้ให้รู้ตลอดไปว่ามาจากข้างนอก
         - ห้ามเก็บ private reasoning / chain-of-thought เป็น audit record — เก็บ structured metadata แทน
         - trace ที่ไม่มี step ย่อยถือว่าถูกต้อง · execution ที่ไม่มี step event ไม่ได้แปลว่ามันไม่ได้ทำอะไร
-        - event type ใหม่ที่ไม่อยู่ในลิสต์ = semantic change ต้องมี RFC ที่นี่ก่อน (Rule 2)
 
     platform_may_add_freely:
+      - event type ใหม่                     # rfcs/0009 — เดิมเป็น semantic change
       - tenant_id
       - workspace_id
       - correlation_id
@@ -195,11 +211,18 @@ not_derived:
 # rfcs/0005 Rule 2 — 5 ประเภทนี้ต้องมี RFC ที่ repo นี้ก่อน แล้วจึงทำ ADR ฝั่ง agent-platform
 # ─────────────────────────────────────────────────────────────
 semantic_change_classes:
-  - เพิ่ม ลบ หรือเปลี่ยนชื่อ decision type หรือ event type
+  # แก้โดย rfcs/0009 — เดิมข้อแรกรวม "เพิ่ม" ไว้ด้วย ทำให้ repo อื่นที่อยากได้ event type ใหม่
+  # ต้องมาต่อคิว RFC ของ repo นี้ ทั้งที่เป็น vocabulary ที่ Dev Factory ไม่ได้ใช้
+  - ลบ · เปลี่ยนชื่อ · หรือเปลี่ยนความหมาย ของ decision type หรือ event type ที่มีอยู่
+  - เพิ่ม decision type   # เพิ่ม event type ไม่นับ — ดู contracts.event.frozen.event_types
   - ลดหรือถอน guarantee ข้อใดข้อหนึ่ง
   - เปลี่ยน field ที่มีความหมายจาก required เป็น optional หรือกลับกัน
   - เปลี่ยนความหมายของ decision · event · หรือ state ที่มีอยู่แล้ว
   - เปิดทางให้ execution เดินได้โดยไม่มี APPROVE
+
+# การลดหรือถอน guarantee ถือเป็น breaking change เสมอ แม้ wire format จะยัง compatible
+# schema อยู่ได้โดยที่ความหมายข้างใต้เปลี่ยนไปแล้ว เคสนั้นต้องไม่หลุดผ่านไปในฐานะ additive
+breaking_change_note: guarantee change = breaking แม้ schema ยัง compatible
 
 escalation:
   semantics: Architecture Owner ของ devfactory-core ตัดสินสุดท้าย
