@@ -1,0 +1,37 @@
+name: test
+
+# The seed of the release gate ADR-0006 requires of a consumer. Right now it runs
+# unit tests; payload conformance against the pinned contracts joins it in issue #6.
+
+on:
+  push:
+    branches: [main]
+    paths: ['packages/**', 'apps/**', '.github/workflows/test.yml']
+  pull_request:
+    paths: ['packages/**', 'apps/**', '.github/workflows/test.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        working-directory: packages/core
+        run: pip install --no-cache-dir -e '.[test]'
+
+      - name: Test
+        working-directory: packages/core
+        run: python -m pytest --cov=devfactory_core --cov-report=term-missing

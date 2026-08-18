@@ -1,0 +1,30 @@
+[project]
+name = "devfactory-core"
+version = "0.1.0"
+description = "Job state machine for the devfactory-core control plane"
+requires-python = ">=3.11"
+license = { file = "../../LICENSE" }
+# No runtime dependencies. CORE_BOUNDARY.md forbids vendor-coupled frameworks in
+# v0.x, and a lifecycle engine does not need one.
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-cov>=5"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["devfactory_core*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.coverage.report]
+# Acceptance criterion of issue #2. The engine is pure logic with no I/O, so
+# there is no honest excuse for an uncovered branch.
+fail_under = 90
+show_missing = true
