@@ -3,7 +3,9 @@ name = "devfactory-core"
 version = "0.1.0"
 description = "Job state machine for the devfactory-core control plane"
 requires-python = ">=3.11"
-license = { file = "../../LICENSE" }
+# SPDX string (PEP 639). A file= path cannot point outside this directory,
+# and LICENSE lives at the repository root.
+license = "MIT"
 # No runtime dependencies. CORE_BOUNDARY.md forbids vendor-coupled frameworks in
 # v0.x, and a lifecycle engine does not need one.
 dependencies = []
@@ -12,7 +14,7 @@ dependencies = []
 test = ["pytest>=8", "pytest-cov>=5"]
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
