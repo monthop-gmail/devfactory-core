@@ -187,3 +187,106 @@ def test_job_exposes_its_identity_and_settlement(alice, clock):
     assert job.is_terminal is False
     drive(job, JobState.COMPLETED, alice)
     assert job.is_terminal is True
+
+
+def test_the_seven_canonical_event_types_are_declared():
+    """RFC-0003's vocabulary, in one place. The state machine emits three of them."""
+    assert {t.value for t in EventType} == {
+        "JOB_CREATED",
+        "STATE_TRANSITION",
+        "GOVERNANCE_DECISION",
+        "TASK_ASSIGNED",
+        "EXECUTION_STARTED",
+        "EXECUTION_FAILED",
+        "JOB_COMPLETED",
+    }
+
+
+def test_the_state_machine_emits_only_its_own_three(alice, clock):
+    job = drive(_fresh(alice, clock), JobState.COMPLETED, alice)
+    emitted = {e.event_type for e in job.events}
+    assert emitted <= {
+        EventType.JOB_CREATED,
+        EventType.STATE_TRANSITION,
+        EventType.JOB_COMPLETED,
+    }
+
+
+# ---- the wider surface RFC-0008 needs for external events -------------------
+
+
+def test_an_unrecognised_type_is_kept_not_rejected(clock):
+    """event/v1: keep an unknown event_type, skip interpreting it, never drop it."""
+    event = Event(
+        event_id=new_event_id(),
+        event_type="SIGHTING_RECORDED",
+        tenant_id="acme",
+        subject_type="external",
+        subject_id="sighting-9",
+        occurred_at=clock(),
+    )
+    assert event.is_recognised is False
+    assert event.type_value == "SIGHTING_RECORDED"
+    assert event.as_payload()["event_type"] == "SIGHTING_RECORDED"
+
+
+def test_a_known_type_reports_itself_as_recognised(alice, clock):
+    job = _fresh(alice, clock)
+    assert job.events[0].is_recognised is True
+    assert job.events[0].type_value == "JOB_CREATED"
+
+
+def test_job_id_is_omitted_when_there_is_no_job(clock):
+    """RFC-0008: absent means absent. Never a placeholder."""
+    event = Event(
+        event_id=new_event_id(),
+        event_type="GEOFENCE_CROSSED",
+        tenant_id="acme",
+        subject_type="external",
+        subject_id="device-4",
+        occurred_at=clock(),
+    )
+    assert "job_id" not in event.as_payload()
+
+
+def test_an_external_source_is_preserved(clock):
+    event = Event(
+        event_id=new_event_id(),
+        event_type="SIGHTING_RECORDED",
+        tenant_id="acme",
+        subject_type="external",
+        subject_id="sighting-9",
+        occurred_at=clock(),
+        source={"kind": "external", "system": "navi-ims"},
+    )
+    assert event.as_payload()["source"] == {"kind": "external", "system": "navi-ims"}
+
+
+def test_our_own_events_are_stamped_internal(alice, clock):
+    from devfactory_core.events import INTERNAL_SOURCE
+
+    job = _fresh(alice, clock)
+    assert job.events[0].as_payload()["source"] == INTERNAL_SOURCE
+
+
+def test_correlation_id_is_carried_when_given(clock):
+    event = Event(
+        event_id=new_event_id(),
+        event_type=EventType.JOB_CREATED,
+        tenant_id="acme",
+        subject_type="job",
+        subject_id="job-1",
+        occurred_at=clock(),
+        job_id="job-1",
+        correlation_id="corr-1",
+    )
+    assert event.as_payload()["correlation_id"] == "corr-1"
+    assert "correlation_id" not in Event(
+        event_id=new_event_id(),
+        event_type=EventType.JOB_CREATED,
+        tenant_id="acme",
+        subject_type="job",
+        subject_id="job-1",
+        occurred_at=clock(),
+        job_id="job-1",
+    ).as_payload()

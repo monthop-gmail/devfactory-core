@@ -1,14 +1,18 @@
 name: test
 
-# The seed of the release gate ADR-0006 requires of a consumer. Right now it runs
-# unit tests; payload conformance against the pinned contracts joins it in issue #6.
+# The release gate ADR-0006 requires of a consumer: unit tests for both packages
+# plus payload conformance against the pinned contracts.
+#
+# A failing job here has to block the merge for this to be a gate rather than a
+# report. That needs branch protection with these checks marked required, which is
+# a repository setting and not something this file can assert.
 
 on:
   push:
     branches: [main]
-    paths: ['packages/**', 'apps/**', '.github/workflows/test.yml']
+    paths: ['packages/**', 'apps/**', 'conformance/**', '.github/workflows/test.yml']
   pull_request:
-    paths: ['packages/**', 'apps/**', '.github/workflows/test.yml']
+    paths: ['packages/**', 'apps/**', 'conformance/**', '.github/workflows/test.yml']
   workflow_dispatch:
 
 permissions:
@@ -29,9 +33,34 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install
-        working-directory: packages/core
-        run: pip install --no-cache-dir -e '.[test]'
+        # observability imports devfactory_core, so core is installed first.
+        # Both are path installs — neither is a published distribution.
+        run: |
+          pip install --no-cache-dir -e './packages/core[test]'
+          pip install --no-cache-dir -e './packages/observability[test]'
 
-      - name: Test
+      - name: Test core
         working-directory: packages/core
         run: python -m pytest --cov=devfactory_core --cov-report=term-missing
+
+      - name: Test observability
+        working-directory: packages/observability
+        run: python -m pytest --cov=devfactory_observability --cov-report=term-missing
+
+  conformance:
+    # ADR-0006 requirement 2 — validate payloads the engine actually produces
+    # against the contracts pinned in conformance/pinned.yaml.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: pip install --no-cache-dir 'pyyaml==6.*' 'jsonschema==4.*' 'referencing==0.*'
+
+      - name: Payload conformance
+        run: python3 conformance/payload_check.py

@@ -15,7 +15,7 @@ from .errors import (
     TerminalState,
     WrongResumeState,
 )
-from .events import Event, EventType
+from .events import INTERNAL_SOURCE, Event, EventType
 from .identity import DEFAULT_TENANT, Principal
 from .job import Job, TransitionRecord
 from .states import TERMINAL, TRANSITIONS, JobState
@@ -24,6 +24,7 @@ __all__ = [
     "DEFAULT_TENANT",
     "TERMINAL",
     "TRANSITIONS",
+    "INTERNAL_SOURCE",
     "Event",
     "EventType",
     "ExecutionBeforeApproval",

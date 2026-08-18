@@ -18,14 +18,27 @@ contracts:
   - event/v1        # derive จาก rfcs/0003 + rfcs/0008 — publish แล้ว 2026-08-18
 
 conformance:
-  status: unknown
-  last_verified: null
+  status: passing
+  last_verified: 2026-08-18
 
-  # ทำไมเป็น unknown ไม่ใช่ passing:
-  # ADR-0006 บังคับ consumer 3 ข้อ — manifest · conformance test ใน CI ที่ validate payload จริง ·
-  # release gate  ·  repo นี้มีข้อแรกได้ แต่อีก 2 ข้อยังไม่ได้เพราะ packages/* ยังไม่มี code
-  # จึงไม่มี payload จริงให้ validate  ·  ตาม ADR-0006 สถานะที่ไม่เคยรัน test = unknown
-  # จะเปลี่ยนเป็น passing ได้เมื่อมี code ที่ผลิต payload จริงและ CI validate ผ่านเท่านั้น
+  # ADR-0006 บังคับ consumer 3 ข้อ — ครบแล้วทั้งสาม:
+  #   1. manifest        ไฟล์นี้
+  #   2. conformance test ใน CI ที่ validate payload จริง
+  #                      conformance/payload_check.py — รัน scenario ผ่าน job state
+  #                      machine และ event log จริง แล้ว validate event 37 ตัว
+  #                      กับ event/v1 ที่ pin ไว้ · ไม่มี fixture ที่เขียนขึ้นเพื่อให้ schema ผ่าน
+  #   3. release gate    job `core` และ `conformance` ใน .github/workflows/test.yml
+  #                      รันทุก PR
+  #
+  # ⚠️ ข้อ 3 จะบล็อกการ merge ได้จริงต่อเมื่อเปิด branch protection แล้วตั้ง check
+  #    ทั้งสองเป็น required — เป็น repo setting ไม่ใช่สิ่งที่ไฟล์ในนี้ยืนยันได้
+  #
+  # นอกจาก schema แล้ว payload_check ยังตรวจ guarantee ของ event/v1 อีก 8 ข้อ
+  # ที่ JSON Schema ตรวจไม่ได้ — append-only · no silent state change · subject
+  # ตอบได้เสมอ · ไม่ปลอม job_id · reject tenant ที่ resolve ไม่ได้ · คง source
+  # ของ external · ไม่เก็บ reasoning · tenant partition ไม่ปนกัน
+
+pinned_contracts_commit: 72635883c4ce0e8fa8ed2fd64c02cbc4d5616087   # conformance/pinned.yaml
 
 # ช่องว่างจาก consumer pilot ของ agent-platform และ RFC ที่ปิดแต่ละข้อ
 # รายละเอียดเต็ม: agent-platform/architecture/consumer-devfactory-core.md
@@ -78,10 +91,23 @@ blocking:
 
 # ที่ยังเหลือจริง ๆ ตอนนี้คือ code — ไม่ใช่เอกสาร
 remaining:
-  - conformance test ใน CI ที่ validate payload จริง (ADR-0006 ข้อ 2) — ต้องมี code ก่อน · issue #2
-  - release gate ที่ fail แล้วปล่อยไม่ได้ (ADR-0006 ข้อ 3)
+  - เปิด branch protection แล้วตั้ง check ของ workflow test เป็น required
+    เพื่อให้ release gate บล็อกการ merge ได้จริง (ADR-0006 ข้อ 3)
+  - governance decision interface (issue #5) · end-to-end simulation (issue #7)
 
-# ADR-0006 นิยาม consumer ว่าต้องครบ 3 ข้อ — repo นี้มีข้อเดียว (manifest)
-# จึงเป็น "registered" ไม่ใช่ "conforming" · ข้อ 6 ใน Definition of Done ของทีมยังติ๊กไม่ได้
-# จนกว่าจะมี code ที่ผลิต payload จริง
-registration: registered   # registered | conforming
+registration: conforming   # registered | conforming
+
+# ช่องว่างที่ค้างอยู่ฝั่ง contract ไม่ใช่ฝั่ง implementation
+# ตามแบบที่ care-agent-platform ทำ — บันทึกไว้ให้ platform เห็นโดยไม่ต้องมาถาม
+gaps:
+  - id: event-type-enum-closed
+    issue: https://github.com/monthop-gmail/agent-platform/issues/17
+    detail: >-
+      event/v1 $defs.EventType ยังเป็น enum ปิด 7 ค่า ซึ่งขัดกับ platform_rules
+      ของไฟล์เดียวกันและขัดกับ ADR-0006 Rule 2 ฉบับแก้ (RFC-0009) ที่ตัดสินว่า
+      vocabulary เป็นชุดเปิด — event จากภายนอกอย่าง SIGHTING_RECORDED
+      จึง validate ไม่ผ่าน · เจอโดย payload_check รอบแรก
+    workaround: >-
+      บันทึกเป็น known_gaps ใน conformance/pinned.yaml แคบไว้ที่ field event_type
+      ของ event ที่ source.kind = external เท่านั้น · หมดอายุ 2026-11-18
+    severity: low
