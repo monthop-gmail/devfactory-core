@@ -1,0 +1,63 @@
+# เวอร์ชันของ agent-platform ที่ repo นี้ conform อยู่
+#
+# อัปเกรดเป็น PR แยกเสมอ: เปลี่ยน commit ที่นี่ → รัน payload_check → แก้สิ่งที่พัง → ค่อย merge
+# ห้ามอัปเกรดปนกับงาน feature เพราะจะแยกไม่ออกว่าอะไรพังเพราะ contract หรือเพราะ code
+
+repo: monthop-gmail/agent-platform
+ref: main
+commit: 72635883c4ce0e8fa8ed2fd64c02cbc4d5616087
+pinned_at: "2026-08-18"
+
+# contract ที่ platform-contract.yaml pin ไว้ และไฟล์ที่ต้องมีใน registry เพื่อ resolve $ref
+# event/v1 อ้างถึง identity · policy · capability · model · error จึงต้องดึงมาทั้งชุด
+schemas:
+  - identity/v1/identity.schema.yaml
+  - event/v1/event.schema.yaml
+  - approval/v1/approval.schema.yaml
+  - policy/v1/policy-decision.schema.yaml
+  - execution/v1/execution.schema.yaml
+  - capability/v1/capability.schema.yaml
+  - model/v1/inference.schema.yaml
+  - error/v1/error.schema.yaml
+
+# key ระดับบนสุดใน schema ของ platform ที่ไม่ใช่ JSON Schema — ต้องตัดก่อน validate
+# ไม่ใช่ข้อบกพร่องของเขา: เป็นที่ที่เขาบันทึก provenance และ semantics ที่เครื่องอ่านได้
+non_schema_keys:
+  - derived_from
+  - guarantees
+  - platform_rules
+  - transitions
+  - retry_policy
+  - parallel_substates
+  - Request
+  - Decision
+
+# guarantee ของ event/v1 ที่ implementation ของเราลดทอนไม่ได้
+# JSON Schema ตรวจข้อเหล่านี้ไม่ได้ — scenario ใน payload_check.py เป็นคนตรวจ
+guarantees:
+  - event เป็น append-only
+  - no silent state change — ทุกการเปลี่ยน state ต้องมี event
+  - ทุก event ต้องตอบได้ว่าเกี่ยวกับอะไร — subject จำเป็นเสมอ
+  - ห้ามสร้าง job_id ปลอมหรือ default ให้ event ที่ไม่มี job
+  - event ที่ resolve tenant ไม่ได้ ให้ reject ที่ intake
+  - external event ต้องคง source ไว้
+  - ห้ามเก็บ private reasoning / chain-of-thought เป็น audit record
+  - event ที่ devfactory-core ส่งออกต้องมี job_id เสมอ
+
+# ช่องว่างที่รู้ตัว — พร้อม issue อ้างอิงและเงื่อนไขที่แคบที่สุดเท่าที่จะแคบได้
+#
+# payload_check ยอมให้ failure ที่เข้าเงื่อนไขข้างล่างนี้เท่านั้นผ่านไปได้
+# failure อื่นทุกแบบทำให้ run แดง · การขยายรายการนี้ต้องมี issue ใหม่เสมอ
+known_gaps:
+  - id: event-type-enum-closed
+    issue: https://github.com/monthop-gmail/agent-platform/issues/17
+    detail: >-
+      event/v1 $defs.EventType เป็น enum ปิด 7 ค่า ซึ่งขัดกับ platform_rules
+      ของไฟล์เดียวกัน ("consumer ที่เจอ event_type ที่ไม่รู้จักต้องเก็บไว้
+      ห้าม drop ห้าม fail") และขัดกับ RFC-0009 ที่ ADR-0006 Rule 2 รับไปแล้ว
+      ว่า vocabulary เป็นชุดเปิด — schema ยังไม่ได้ implement การแก้นั้น
+    tolerated_when:
+      # แคบไว้ที่ 2 เงื่อนไขพร้อมกัน: ต้องเป็น event จากภายนอก และ error ต้องอยู่ที่ field นี้
+      source_kind: external
+      json_path: event_type
+    expires: "2026-11-18"   # ADR-0006 ห้ามยกเว้นถาวร

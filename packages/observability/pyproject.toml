@@ -1,0 +1,29 @@
+[project]
+name = "devfactory-observability"
+version = "0.1.0"
+description = "Audit and event log for the devfactory-core control plane"
+requires-python = ">=3.11"
+license = "MIT"
+# devfactory-core is a sibling package in this repository, not a published
+# distribution, so it is installed from its path rather than declared here.
+# CI installs packages/core first; see .github/workflows/test.yml.
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-cov>=5"]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["devfactory_observability*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "../core"]
+addopts = "-q"
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
