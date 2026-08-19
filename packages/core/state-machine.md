@@ -42,6 +42,10 @@ Execution is forbidden before `APPROVED`.
 `CANCELLED` is reachable from every non-terminal state.
 `TIMED_OUT` is reachable from `GOVERNANCE_ANALYSIS`, `TASK_PLANNING`, `IN_PROGRESS`,
 `AWAITING_APPROVAL`, and `VALIDATING`.
+`FAILED` is reachable from `TASK_PLANNING`, `IN_PROGRESS`, `AWAITING_APPROVAL`,
+`VALIDATING`, and `DEPLOYABLE` — the states where work exists to fail — and from nowhere
+before `APPROVED`, where the honest outcomes are `REJECTED`, `CANCELLED`, or `TIMED_OUT`
+([RFC-0010](../../rfcs/0010-failable-states.md)).
 
 ## AWAITING_APPROVAL
 
