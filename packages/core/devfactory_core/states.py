@@ -68,7 +68,7 @@ TIMEOUTABLE: frozenset[JobState] = frozenset(
 
 #: A job fails only where work exists to fail. Before APPROVED nothing is
 #: executing, so the honest outcomes there are REJECTED, CANCELLED, or TIMED_OUT.
-#: See "Open question" in the module docstring of ``job.py``.
+#: Settled by RFC-0010.
 FAILABLE: frozenset[JobState] = frozenset(
     {
         JobState.TASK_PLANNING,

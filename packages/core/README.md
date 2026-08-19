@@ -77,11 +77,12 @@ python -m pytest                       # 235 tests
 python -m pytest --cov=devfactory_core # coverage gate at 90%, currently 100%
 ```
 
-## Open question
+## Which states may fail
 
-`state-machine.md` says `FAILED` is terminal and lists `AWAITING_APPROVAL -> FAILED`,
-but never enumerates which other states may fail. This module permits `FAILED` from
+Settled by [RFC-0010](../../rfcs/0010-failable-states.md): `FAILED` is reachable from
 `TASK_PLANNING`, `IN_PROGRESS`, `AWAITING_APPROVAL`, `VALIDATING`, and `DEPLOYABLE` —
-the states where work exists to fail — and refuses it before `APPROVED`, where the
-honest outcomes are `REJECTED`, `CANCELLED`, or `TIMED_OUT`. That reading needs
-confirming in an RFC; see `states.FAILABLE`.
+the states where work exists to fail — and refused before `APPROVED`, where the honest
+outcomes are `REJECTED`, `CANCELLED`, or `TIMED_OUT`. See `states.FAILABLE`.
+
+`APPROVED` is in neither `FAILABLE` nor `TIMEOUTABLE`, so a job that stalls there has no
+automatic exit — RFC-0010 records this as an open question rather than a decision.

@@ -170,6 +170,7 @@ not_derived:
     source:
       - rfcs/0001-job-state-machine.md
       - rfcs/0007-job-lifecycle-completeness.md   # amend 0001
+      - rfcs/0010-failable-states.md              # ระบุว่า state ไหนไป FAILED ได้
     note: >-
       ให้ vocabulary ไว้เพื่อให้ execution/v1 อ้างความหมายของ job state ได้
       โดยไม่ต้องคาดเดา — คำเตือน external-authority-pending ใน execution.schema.yaml
@@ -189,6 +190,35 @@ not_derived:
       - CANCELLED
       - TIMED_OUT
     terminal: [COMPLETED, FAILED, CANCELLED, TIMED_OUT]
+
+    # เส้นทางปกติ — ไม่รวมทางออกที่ตัดขวางทุก state (cancellable/timeoutable/failable ด้านล่าง)
+    # ไม่ลง state ที่อยู่ใน terminal เพราะไม่มี edge ออก — ดู terminal ด้านบน
+    progression:
+      DRAFT: [GOVERNANCE_ANALYSIS]
+      GOVERNANCE_ANALYSIS: [APPROVED, REJECTED]
+      APPROVED: [TASK_PLANNING]
+      REJECTED: [DRAFT]
+      TASK_PLANNING: [IN_PROGRESS]
+      IN_PROGRESS: [VALIDATING, AWAITING_APPROVAL]
+      VALIDATING: [DEPLOYABLE, AWAITING_APPROVAL]
+      DEPLOYABLE: [COMPLETED, AWAITING_APPROVAL]
+      AWAITING_APPROVAL: []   # ทางออกเป็น awaiting_from — ดูด้านล่าง ไม่ใช่ dead end
+
+    # ทางออกของ AWAITING_APPROVAL เป็นกฎ ไม่ใช่ edge — ค่าต่างกันต่อ job จึงเขียนเป็นตารางไม่ได้
+    awaiting_from: >-
+      job ที่เข้า AWAITING_APPROVAL ต้องพก awaiting_from เสมอ (RFC-0007) และออกกลับไปที่ state นั้น
+      consumer ที่เห็น progression.AWAITING_APPROVAL = [] ต้องไม่สรุปว่าเป็น terminal
+
+    # rfcs/0010 — FAILED ไปถึงได้จาก 5 state ที่มีงานให้ล้มเท่านั้น
+    # ก่อน APPROVED ยังไม่มี execution ผลลัพธ์ที่ซื่อสัตย์คือ REJECTED / CANCELLED / TIMED_OUT
+    failable: [TASK_PLANNING, IN_PROGRESS, AWAITING_APPROVAL, VALIDATING, DEPLOYABLE]
+
+    # rfcs/0007
+    timeoutable: [GOVERNANCE_ANALYSIS, TASK_PLANNING, IN_PROGRESS, AWAITING_APPROVAL, VALIDATING]
+
+    # rfcs/0007 — หยุดงานได้ทุกจุดก่อนที่มันจะ settle
+    cancellable: ทุก state ที่ไม่อยู่ใน terminal
+
     invariants:
       - execution ห้ามเกิดก่อน APPROVED
       - REJECTED ไม่ terminal — กลับไป DRAFT ได้
@@ -197,6 +227,7 @@ not_derived:
       - job ไม่เข้า FAILED เพราะ execution เดียวล้ม — orchestration ต้อง exhaust retry ก่อน
       - AWAITING_APPROVAL คนละอย่างกับ GOVERNANCE_ANALYSIS — อันหลังคือประตูก่อนเริ่มงาน
       - FAILED · CANCELLED · TIMED_OUT ต้องมี reason metadata
+      - job ที่ยังไม่ผ่าน APPROVED เข้า FAILED ไม่ได้ — recovery ด้วย supersedes_job_id จะไม่มีอะไรให้ supersede (rfcs/0010)
     layering: job (ที่นี่) > execution (execution/v1) > step (event/)
 
   orchestration_execution_boundary:

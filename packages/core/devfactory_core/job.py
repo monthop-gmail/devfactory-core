@@ -1,19 +1,15 @@
 """The in-memory job state machine.
 
 Canonical spec: ``packages/core/state-machine.md`` — RFC-0001 as amended by
-RFC-0007, with the tenant model from RFC-0006.
+RFC-0007 and RFC-0010, with the tenant model from RFC-0006.
 
 Scope, per issue #2: in memory, no persistence, no policy engine, no API. What
 this module owns is the lifecycle and the guards on it.
 
-Open question surfaced by implementing this
--------------------------------------------
-``state-machine.md`` says FAILED is terminal and lists ``AWAITING_APPROVAL ->
-FAILED``, but never enumerates which other states may fail. This module permits
-FAILED from TASK_PLANNING, IN_PROGRESS, AWAITING_APPROVAL, VALIDATING, and
-DEPLOYABLE — the states where work exists to fail — and refuses it before
-APPROVED, where the honest outcomes are REJECTED, CANCELLED, or TIMED_OUT.
-That reading needs confirming in an RFC; see ``states.FAILABLE``.
+Which states may fail is settled by RFC-0010: FAILED from TASK_PLANNING,
+IN_PROGRESS, AWAITING_APPROVAL, VALIDATING, and DEPLOYABLE only — the states
+where work exists to fail — and refused before APPROVED, where the honest
+outcomes are REJECTED, CANCELLED, or TIMED_OUT. See ``states.FAILABLE``.
 """
 
 from __future__ import annotations
