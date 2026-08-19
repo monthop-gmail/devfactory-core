@@ -60,10 +60,32 @@ def test_timeout_reachable_where_specified(state):
     assert JobState.TIMED_OUT in static_targets(state)
 
 
-def test_timeout_not_reachable_from_draft_or_approved():
-    """Nothing is waiting on anything in DRAFT or APPROVED, so nothing can expire."""
+def test_timeout_not_reachable_from_draft():
+    """A DRAFT is not waiting on anything, so there is nothing there to expire.
+
+    This used to say the same about ``APPROVED``. RFC-0007 Amendment 1 (issue #17)
+    settled that it was wrong: the approval itself is the thing that expires, and a
+    job holding one has been waiting since the moment it was granted.
+    """
     assert JobState.TIMED_OUT not in static_targets(JobState.DRAFT)
-    assert JobState.TIMED_OUT not in static_targets(JobState.APPROVED)
+
+
+def test_an_approval_can_run_out_where_the_job_sits():
+    """RFC-0007 Amendment 1: an approval must expire, so APPROVED must be able to.
+
+    Without this edge a job whose orchestration died after the decision was
+    recorded had no automatic exit at all — only a human cancelling it moved it,
+    and until then it could still start executing under a verdict that had gone
+    stale. See ``states.TIMEOUTABLE``.
+    """
+    assert JobState.APPROVED in TIMEOUTABLE
+    assert JobState.TIMED_OUT in static_targets(JobState.APPROVED)
+
+
+def test_approved_still_cannot_fail():
+    """The amendment moved one line and no more. RFC-0010 Decision 1 is untouched."""
+    assert JobState.APPROVED not in FAILABLE
+    assert JobState.FAILED not in static_targets(JobState.APPROVED)
 
 
 @pytest.mark.parametrize("state", sorted(FAILABLE, key=lambda s: s.value))

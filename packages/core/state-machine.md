@@ -40,8 +40,10 @@ Execution is forbidden before `APPROVED`.
 `FAILED` is terminal — recovery is a new job carrying `supersedes_job_id`, not a retry.
 
 `CANCELLED` is reachable from every non-terminal state.
-`TIMED_OUT` is reachable from `GOVERNANCE_ANALYSIS`, `TASK_PLANNING`, `IN_PROGRESS`,
-`AWAITING_APPROVAL`, and `VALIDATING`.
+`TIMED_OUT` is reachable from `GOVERNANCE_ANALYSIS`, `APPROVED`, `TASK_PLANNING`,
+`IN_PROGRESS`, `AWAITING_APPROVAL`, and `VALIDATING` — `APPROVED` since
+[RFC-0007 Amendment 1](../../rfcs/0007-job-lifecycle-completeness.md#amendment-1--approved-may-time-out-2026-08-19),
+because an approval must expire (issue #17).
 `FAILED` is reachable from `TASK_PLANNING`, `IN_PROGRESS`, `AWAITING_APPROVAL`,
 `VALIDATING`, and `DEPLOYABLE` — the states where work exists to fail — and from nowhere
 before `APPROVED`, where the honest outcomes are `REJECTED`, `CANCELLED`, or `TIMED_OUT`
@@ -79,6 +81,32 @@ Guarantees the engine enforces, not just documents:
   authority*
 - execution stays locked until the job holds an `APPROVE` record, not merely the
   `APPROVED` state
+- an approval past its `expires_at` unlocks nothing: entering a post-approval state
+  under one is refused (`ExpiredApproval`), and a trail that records it happening is
+  refused on replay (`ExecutionAfterExpiry`). `expires_at` is optional in
+  `approval/v1` and stays optional here — an approval with no deadline never expires
+
+## Approval expiry
+
+`approval/v1` carries `expires_at` and states the rule: *"approval ที่หมดอายุแล้วใช้เดินงาน
+ไม่ได้ ต้องขอใหม่ · งานที่ค้างรออนุมัติจนเลยกำหนดควรเข้าสถานะ timeout ไม่ใช่รอตลอดไป"*.
+
+```python
+job.approve(authority=bob, reason="scope agreed", expires_at=deadline)
+job.approval_expires_at   # the deadline, or None
+job.approval_expired      # whether it has passed, as of now
+```
+
+Once it has passed, the job cannot move into `TASK_PLANNING`, `IN_PROGRESS`,
+`AWAITING_APPROVAL`, `VALIDATING`, or `DEPLOYABLE` — the states that mean execution was
+authorised, including the way back out of a pause. What remains is a fresh `APPROVE`,
+`CANCELLED`, or `TIMED_OUT`;
+[RFC-0007 Amendment 1](../../rfcs/0007-job-lifecycle-completeness.md#amendment-1--approved-may-time-out-2026-08-19)
+added the last of those so a job stalled in `APPROVED` has an honest terminal.
+
+Timeout **policy** — how long an approval is good for — is not set here. RFC-0007 and
+RFC-0010 both leave the values out of scope, so nothing in this repository supplies a
+default `expires_at` or fires a timeout on its own.
 
 ## AWAITING_APPROVAL
 
@@ -126,6 +154,9 @@ Recorded rather than answered — each needs an RFC, not a code change.
   self-approval invariant about agents only, so the engine refuses agent
   self-approval and allows the human case. Widening it would make this engine
   stricter than the contract it conforms to.
-- `APPROVED` is in neither `FAILABLE` nor `TIMEOUTABLE`, so an approval nobody acts on
-  has no automatic exit — [RFC-0010](../../rfcs/0010-failable-states.md) records this,
-  and it is issue #17.
+- How long is an approval good for? `expires_at` is enforced when it is set, and nothing
+  here sets it. The policy values are Future Work in both
+  [RFC-0007](../../rfcs/0007-job-lifecycle-completeness.md) and
+  [RFC-0010](../../rfcs/0010-failable-states.md), so an approval granted without a
+  deadline is still an approval that never expires — the state now exists for one that
+  does. Settling the values is orchestration's, and needs an RFC of its own.

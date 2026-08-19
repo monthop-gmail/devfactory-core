@@ -195,6 +195,32 @@ def cancelled_by_a_person(new: JobFactory, *, job_id: str, owner: Principal) -> 
     return job
 
 
+def approval_expired(
+    new: JobFactory, *, job_id: str, authority: Principal, expires_at: datetime
+) -> Job:
+    """An approval that ran out before the work started.
+
+    RFC-0007 Amendment 1's characteristic stall, and the reason ``APPROVED`` is in
+    ``TIMEOUTABLE``: orchestration never came for the job, the approval lapsed
+    where it sat, and the honest terminal is ``TIMED_OUT`` rather than an
+    indefinite wait for someone to notice.
+
+    ``expires_at`` is passed in rather than computed, because it has to be in the
+    past relative to whichever clock the caller gave the factory — the flows hold
+    no opinion about the clock, and a timeout policy that decided this for them
+    would be inventing values two RFCs deliberately left out of scope.
+    """
+    job = new(job_id)
+    job.submit_for_governance(reason="ready for governance review")
+    job.approve(
+        authority=authority,
+        reason="scope matches milestone v0.1",
+        expires_at=expires_at,
+    )
+    job.time_out(reason="approval_expired — the approval lapsed before planning began")
+    return job
+
+
 def stalled_awaiting_approval(
     new: JobFactory, *, job_id: str, authority: Principal
 ) -> Job:

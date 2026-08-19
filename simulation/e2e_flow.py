@@ -62,6 +62,7 @@ from devfactory_observability import (  # noqa: E402
 )
 from simulation.flows import (  # noqa: E402
     MAIN_LINE,
+    approval_expired,
     cancelled_by_a_person,
     failed_at,
     happy_path,
@@ -455,6 +456,8 @@ def check_replay(jobs, log) -> None:
             seen.state is not job.state
             or seen.awaiting_from is not job.awaiting_from
             or seen.approval_decision_id != expected_approval
+            or seen.approval_expires_at
+            != (job.approval.expires_at if job.approval else None)
             or seen.tenant_id != job.tenant_id
             or seen.workspace_id != job.workspace_id
             or seen.supersedes_job_id != job.supersedes_job_id
@@ -526,12 +529,20 @@ def simulate(log: EventLog) -> list[Job]:
     print("\n[4] governance gate — ไม่มี APPROVE record ก็ไม่มี execution")
     gated = check_governance_gate(new, reviewer)
 
-    # Two flows this repository already exercised in conformance, kept in the run
-    # so the trail the replay checks work on covers every terminal state.
+    # Three flows this repository already exercised in conformance, kept in the run
+    # so the trail the replay checks work on covers every terminal state — and,
+    # since RFC-0007 Amendment 1, the APPROVED -> TIMED_OUT edge and an approval
+    # carrying an expires_at, which check [6] then has to reconstruct.
     cancelled = cancelled_by_a_person(new, job_id="job-005", owner=owner)
     stalled = stalled_awaiting_approval(new, job_id="job-006", authority=reviewer)
+    expired = approval_expired(
+        new,
+        job_id="job-007",
+        authority=reviewer,
+        expires_at=datetime(2026, 8, 19, 8, tzinfo=timezone.utc),
+    )
 
-    jobs = [happy, rejected, *failures, *gated, cancelled, stalled]
+    jobs = [happy, rejected, *failures, *gated, cancelled, stalled, expired]
     for job in jobs:
         log.extend(job.events)
     return jobs

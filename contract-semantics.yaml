@@ -107,6 +107,20 @@ contracts:
       note: >-
         packages/core ทำ decision interface ครบตาม RFC-0002 แล้ว (issue #5)
         vocabulary ยังมีครบ 3 ค่าตามชุดปิด — ห้ามลบค่าใดออกจาก contract
+      enforced_optional_fields:
+        # field ที่ agent-platform เพิ่มเองได้ (platform_may_add_freely ด้านล่าง)
+        # แต่ตัว schema เขียนความหมายไว้แล้ว — repo นี้จึงบังคับตามความหมายนั้น
+        # ไม่ใช่การเพิ่ม guarantee ใหม่ แต่คือการปิดช่องว่างของการ conform
+        - field: expires_at
+          detail: >-
+            approval/v1 บอกว่า "approval ที่หมดอายุแล้วใช้เดินงานไม่ได้ ต้องขอใหม่ ·
+            งานที่ค้างรออนุมัติจนเลยกำหนดควรเข้าสถานะ timeout ไม่ใช่รอตลอดไป"
+            · Decision เก็บค่านี้ · engine ปฏิเสธการเข้า state ฝั่ง execution
+            ด้วย approval ที่หมดอายุ (ExpiredApproval) · replay ปฏิเสธ trail ที่บันทึกว่าเกิดขึ้นแล้ว
+            (ExecutionAfterExpiry) · ปลายทางของงานที่ค้างคือ TIMED_OUT ตาม rfcs/0007 Amendment 1
+          optional: >-
+            ยัง optional เหมือนใน schema — approval ที่ไม่มี expires_at คือไม่มีวันหมดอายุ
+            บังคับให้ต้องมีจะทำให้ engine เข้มกว่า contract ที่ conform อยู่ · issue #17
       unmapped:
         - decision: REQUIRE_CHANGES
           detail: >-
@@ -228,8 +242,12 @@ not_derived:
     # ก่อน APPROVED ยังไม่มี execution ผลลัพธ์ที่ซื่อสัตย์คือ REJECTED / CANCELLED / TIMED_OUT
     failable: [TASK_PLANNING, IN_PROGRESS, AWAITING_APPROVAL, VALIDATING, DEPLOYABLE]
 
-    # rfcs/0007
-    timeoutable: [GOVERNANCE_ANALYSIS, TASK_PLANNING, IN_PROGRESS, AWAITING_APPROVAL, VALIDATING]
+    # rfcs/0007 · APPROVED เพิ่มโดย Amendment 1 ของ rfcs/0007 (2026-08-19, issue #17)
+    # เหตุผลเป็น governance ไม่ใช่ liveness: การอนุมัติต้องมีวันหมดอายุ
+    # job ที่ค้างใน APPROVED ได้ตลอดไป = เริ่มทำงานอีกสัปดาห์ภายใต้คำตัดสินที่บริบทเปลี่ยนไปแล้ว
+    # ซึ่งเป็น stale APPROVED แบบเดียวกับที่ rfcs/0007 Decision 1 ห้ามตอนไม่ยอมปลุก job ที่ FAILED
+    timeoutable: [GOVERNANCE_ANALYSIS, APPROVED, TASK_PLANNING, IN_PROGRESS, AWAITING_APPROVAL,
+                  VALIDATING]
 
     # rfcs/0007 — หยุดงานได้ทุกจุดก่อนที่มันจะ settle (= states ทั้งหมด ลบ terminal)
     # เขียนเป็น list เหมือน failable/timeoutable เพื่อให้เครื่องที่อ่านสามคีย์นี้ parse ได้แบบเดียวกัน
@@ -245,6 +263,7 @@ not_derived:
       - AWAITING_APPROVAL คนละอย่างกับ GOVERNANCE_ANALYSIS — อันหลังคือประตูก่อนเริ่มงาน
       - FAILED · CANCELLED · TIMED_OUT ต้องมี reason metadata
       - job ที่ยังไม่ผ่าน APPROVED เข้า FAILED ไม่ได้ — recovery ด้วย supersedes_job_id จะไม่มีอะไรให้ supersede (rfcs/0010)
+      - approval ที่เลย expires_at แล้วใช้เดินงานต่อไม่ได้ — engine ปฏิเสธ ไม่ใช่ปล่อยผ่าน · job ที่ค้างอยู่เข้า TIMED_OUT ได้ (rfcs/0007 Amendment 1)
     layering: job (ที่นี่) > execution (execution/v1) > step (event/)
 
   orchestration_execution_boundary:

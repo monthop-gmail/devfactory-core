@@ -20,7 +20,10 @@ enforces "execution is forbidden before ``APPROVED``" as it moves a job. That is
 a claim about the log too, and this replays it: reaching a post-approval state
 with no ``APPROVE`` in the trail before it raises
 :class:`~devfactory_observability.errors.UnauditedExecution`, whatever the engine
-believed at the time.
+believed at the time. Reaching one *after* the recorded approval's ``expires_at``
+raises :class:`~devfactory_observability.errors.ExecutionAfterExpiry` for the same
+reason — the deadline and the moment are both in the trail, so "this job ran on an
+approval that had lapsed" is a question the log can answer about itself.
 
 What this module does **not** own is the lifecycle. Every edge it accepts is
 checked against ``devfactory_core.states.reachable_from`` — the same call the
@@ -53,6 +56,7 @@ from devfactory_core.states import (
 from .errors import (
     BrokenTrail,
     EmptyTrail,
+    ExecutionAfterExpiry,
     IncompleteSettlement,
     UnauditedDecision,
     UnauditedExecution,
@@ -95,6 +99,11 @@ class ReplayedJob:
     #: exactly as the engine clears it — an approval granted to an earlier
     #: revision must not appear to authorise the revised one when read back.
     approval_decision_id: str | None
+    #: When that approval stops authorising anything, as the trail recorded it, or
+    #: ``None`` when it carried no deadline. Read back rather than assumed: the
+    #: whole point of ``expires_at`` is that the log can be judged against it
+    #: later, and a replay that dropped it could not do the judging.
+    approval_expires_at: datetime | None
     decision_ids: tuple[str, ...]
     history: tuple[ReplayedTransition, ...]
     #: Whether the trail carries the ``JOB_COMPLETED`` that COMPLETED implies.
@@ -131,6 +140,27 @@ def _approval_of(event: Event) -> dict[str, Any] | None:
     return approval
 
 
+def _expiry_of(approval: dict[str, Any] | None) -> datetime | None:
+    """The ``expires_at`` an approval payload carries, if it carries a usable one.
+
+    Unparseable or zone-less values are treated as absent rather than raising.
+    ``approval/v1`` types the field ``format: date-time`` and the conformance
+    check validates it there — a replay is not a second schema (RFC-0005 Rule 4),
+    and a malformed deadline is a finding about the *payload*, which the validator
+    already makes, not about whether the job moved when it should not have.
+    """
+    if approval is None:
+        return None
+    raw = approval.get("expires_at")
+    if not isinstance(raw, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
 def replay_job(events: Iterable[Event]) -> ReplayedJob:
     """Reconstruct one job from its events, in the order they were logged.
 
@@ -153,6 +183,7 @@ def replay_job(events: Iterable[Event]) -> ReplayedJob:
     state = JobState.DRAFT
     awaiting_from: JobState | None = None
     approval_decision_id: str | None = None
+    approval_expires_at: datetime | None = None
     pending: dict[str, Any] | None = None
     decision_ids: list[str] = []
     history: list[ReplayedTransition] = []
@@ -192,16 +223,35 @@ def replay_job(events: Iterable[Event]) -> ReplayedJob:
             )
 
         decision_id = _settle_decision(job_id, to_state, pending, event.event_id)
+        settled = pending if decision_id is not None else None
         if decision_id is not None:
             pending = None
         if to_state is JobState.APPROVED:
             approval_decision_id = decision_id
+            approval_expires_at = _expiry_of(settled)
         elif to_state is JobState.REJECTED:
             approval_decision_id = None
+            approval_expires_at = None
 
         # The direction lock, checked against the record rather than the engine.
         if to_state in POST_APPROVAL and approval_decision_id is None:
             raise UnauditedExecution(job_id, to_state.value, event.event_id)
+        # And its second half: the approval must still have been in force when the
+        # record says the job moved. Both timestamps are in the trail, so this is
+        # answerable from the log alone — which is what makes it worth checking
+        # here as well as in the engine.
+        if (
+            to_state in POST_APPROVAL
+            and approval_expires_at is not None
+            and event.occurred_at >= approval_expires_at
+        ):
+            raise ExecutionAfterExpiry(
+                job_id,
+                to_state.value,
+                event.event_id,
+                expired_at=approval_expires_at.isoformat(),
+                occurred_at=event.occurred_at.isoformat(),
+            )
 
         if to_state is JobState.AWAITING_APPROVAL:
             awaiting_from = state
@@ -231,6 +281,7 @@ def replay_job(events: Iterable[Event]) -> ReplayedJob:
         state=state,
         awaiting_from=awaiting_from,
         approval_decision_id=approval_decision_id,
+        approval_expires_at=approval_expires_at,
         decision_ids=tuple(decision_ids),
         history=tuple(history),
         completed=completed,

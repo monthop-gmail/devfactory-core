@@ -60,9 +60,19 @@ APPROVAL_PAUSABLE: frozenset[JobState] = frozenset(
 
 #: RFC-0007: TIMED_OUT is reachable from these. AWAITING_APPROVAL is included
 #: because an approval nobody answers is how a governed pipeline usually stalls.
+#:
+#: ``APPROVED`` was added by RFC-0007's 2026-08-19 amendment (issue #17). The
+#: argument is governance rather than liveness: **an approval must expire.** A job
+#: that may sit in APPROVED forever can start executing a week later under a
+#: verdict formed in a context that no longer holds — the same stale APPROVED that
+#: RFC-0007 Decision 1 refuses when it forbids reviving a FAILED job. ``approval/v1``
+#: already says so on ``expires_at``: "approval ที่หมดอายุแล้วใช้เดินงานไม่ได้ ต้องขอใหม่ ·
+#: งานที่ค้างรออนุมัติจนเลยกำหนดควรเข้าสถานะ timeout ไม่ใช่รอตลอดไป". Without this edge
+#: there was no state for that job to land in.
 TIMEOUTABLE: frozenset[JobState] = frozenset(
     {
         JobState.GOVERNANCE_ANALYSIS,
+        JobState.APPROVED,
         JobState.TASK_PLANNING,
         JobState.IN_PROGRESS,
         JobState.AWAITING_APPROVAL,

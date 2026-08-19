@@ -128,6 +128,17 @@ class Decision:
     decided_at: datetime
     workspace_id: str | None = None
 
+    #: When this decision stops authorising anything — ``approval/v1``
+    #: ``expires_at``.
+    #:
+    #: Optional there and optional here, which is the whole of what the contract
+    #: says: an approval with no expiry never expires, and requiring one would
+    #: make this engine stricter than the contract it conforms to. What is *not*
+    #: optional is the meaning when it is present — "approval ที่หมดอายุแล้วใช้เดินงาน
+    #: ไม่ได้ ต้องขอใหม่" — which :class:`~devfactory_core.job.Job` enforces by
+    #: refusing to move a job into execution under an expired one.
+    expires_at: datetime | None = None
+
     #: The decision this one replaces.
     #:
     #: ``approval/v1`` states the guarantee — "การเปลี่ยนใจคือ approval ใบใหม่ที่
@@ -160,6 +171,33 @@ class Decision:
             raise IncompleteDecision("reason")
         if not isinstance(self.decided_at, datetime):
             raise IncompleteDecision("decided_at")
+        if self.expires_at is not None:
+            if not isinstance(self.expires_at, datetime):
+                raise ValueError(
+                    f"expires_at must be a datetime — got {type(self.expires_at).__name__}"
+                )
+            # ``approval/v1`` types it ``format: date-time``, which is RFC 3339 and
+            # carries an offset. A naive value cannot be compared against the
+            # engine's clock without assuming a zone, and assuming one is how an
+            # approval silently expires at the wrong moment.
+            if self.expires_at.tzinfo is None:
+                raise ValueError(
+                    "expires_at must be timezone-aware — an approval that expires at "
+                    "an unstated offset expires at a different time for every reader"
+                )
+
+    def is_expired(self, now: datetime) -> bool:
+        """Whether this decision no longer authorises anything, as of ``now``.
+
+        An approval with no ``expires_at`` is never expired: the field is optional
+        in ``approval/v1``, and absent means "no deadline was set", not "expired".
+
+        The boundary is inclusive — at the instant named the approval is already
+        spent. ``expires_at`` is the moment it stops being usable, not the last
+        moment it can be used, and rounding that in the permissive direction would
+        let a job start on an approval that had run out.
+        """
+        return self.expires_at is not None and now >= self.expires_at
 
     def as_payload(self) -> dict[str, Any]:
         """Render to the ``approval/v1`` wire shape.
@@ -180,6 +218,8 @@ class Decision:
         }
         if self.workspace_id is not None:
             payload["workspace_id"] = self.workspace_id
+        if self.expires_at is not None:
+            payload["expires_at"] = self.expires_at.isoformat()
         if self.supersedes_decision_id is not None:
             # Our field, not theirs — see the field comment above.
             payload["supersedes_decision_id"] = self.supersedes_decision_id

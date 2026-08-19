@@ -56,6 +56,7 @@ enforced, so the engine rejects rather than repairs.
 | an edge not in the table | `InvalidTransition`, naming what *was* allowed |
 | anything out of `COMPLETED` / `FAILED` / `CANCELLED` / `TIMED_OUT` | `TerminalState` — recovery is `supersede()`, not a revival |
 | `TASK_PLANNING` before `APPROVED` | `InvalidTransition` — execution is forbidden before approval |
+| any post-approval state under an approval past its `expires_at` | `ExpiredApproval` — it has to be granted again |
 | `FAILED` / `CANCELLED` / `TIMED_OUT` without a reason | `MissingReason` |
 | `CANCELLED` without a principal | `MissingPrincipal` |
 | `APPROVED` / `REJECTED` without an authority and reason | `MissingAuthority` |
@@ -116,5 +117,21 @@ Settled by [RFC-0010](../../rfcs/0010-failable-states.md): `FAILED` is reachable
 the states where work exists to fail — and refused before `APPROVED`, where the honest
 outcomes are `REJECTED`, `CANCELLED`, or `TIMED_OUT`. See `states.FAILABLE`.
 
-`APPROVED` is in neither `FAILABLE` nor `TIMEOUTABLE`, so a job that stalls there has no
-automatic exit — RFC-0010 records this as an open question rather than a decision.
+## Approval expiry
+
+`approval/v1` carries `expires_at` and says what it means: an approval past it cannot be
+used to run work and has to be granted again. `Decision` stores it, `approve()` takes it,
+and the engine refuses to move a job into a post-approval state under a lapsed one.
+
+```python
+job.approve(authority=bob, reason="scope agreed", expires_at=deadline)
+job.approval_expires_at   # the deadline, or None
+job.approval_expired      # whether it has passed, as of now
+```
+
+`expires_at` is optional in the contract and optional here — an approval without one never
+expires. What changed with issue #17 is that `APPROVED` is now in `TIMEOUTABLE`
+([RFC-0007 Amendment 1](../../rfcs/0007-job-lifecycle-completeness.md#amendment-1--approved-may-time-out-2026-08-19)),
+so a job holding an approval that ran out has an honest terminal to reach instead of
+waiting for a human to cancel it. The timeout *policy* — how long an approval is good for
+— stays out of scope, as it is in RFC-0007 and RFC-0010.

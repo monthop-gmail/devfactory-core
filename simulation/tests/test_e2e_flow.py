@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,7 @@ from conftest import TENANT, WORKSPACE
 from devfactory_core import Job, JobState
 from devfactory_core.errors import (
     ExecutionBeforeApproval,
+    ExpiredApproval,
     InvalidTransition,
     JobStateMachineError,
 )
@@ -30,6 +32,7 @@ from devfactory_core.states import FAILABLE, POST_APPROVAL, TERMINAL
 from devfactory_observability import (
     BrokenTrail,
     EmptyTrail,
+    ExecutionAfterExpiry,
     IncompleteSettlement,
     ReplayError,
     UnauditedDecision,
@@ -42,6 +45,7 @@ from devfactory_observability import (
 from simulation.flows import (
     MAIN_LINE,
     advance_to,
+    approval_expired,
     cancelled_by_a_person,
     failed_at,
     happy_path,
@@ -52,6 +56,10 @@ from simulation.flows import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+
+#: An hour before the ``clock`` fixture starts, so an approval carrying it has
+#: already lapsed by the time anything asks.
+EXPIRED_AT = datetime(2026, 8, 19, 8, tzinfo=timezone.utc)
 
 #: The flow issue #7 writes out. Compared against the table rather than used to
 #: drive anything — see ``test_the_forward_path_is_the_one_the_issue_asks_for``.
@@ -240,6 +248,66 @@ def _park_in(job: Job, state: JobState, authority) -> None:
         job.reject(authority=authority, reason="out of scope")
         return
     job.approve(authority=authority, reason="approved")
+
+
+# ---- [3b] an approval that ran out ------------------------------------------
+# RFC-0007 Amendment 1 (issue #17). Not one of the issue's six items — the flow did
+# not exist when #7 was written — but it belongs beside failure, because it is the
+# other way a job settles without the work having gone wrong.
+
+
+def test_an_approval_that_lapsed_ends_the_job_at_timed_out(new, reviewer):
+    job = approval_expired(
+        new, job_id="job-007", authority=reviewer, expires_at=EXPIRED_AT
+    )
+    assert visited(job) == ("DRAFT", "GOVERNANCE_ANALYSIS", "APPROVED", "TIMED_OUT")
+    assert job.is_terminal
+    assert "approval_expired" in job.history[-1].reason
+
+
+def test_the_lapsed_approval_is_still_in_the_record_that_settled_the_job(
+    new, reviewer
+):
+    """The job did not fail and was not cancelled: the approval expired, and the
+    trail can say so — the deadline is on the decision it names."""
+    job = approval_expired(
+        new, job_id="job-007", authority=reviewer, expires_at=EXPIRED_AT
+    )
+    assert job.approval is not None
+    assert job.approval.expires_at == EXPIRED_AT
+    assert job.approval_expired is True
+    assert replay_job(job.events).approval_expires_at == EXPIRED_AT
+
+
+def test_the_lapsed_approval_authorises_nothing_further(new, reviewer):
+    job = new("job-007b")
+    job.submit_for_governance()
+    job.approve(authority=reviewer, reason="approved", expires_at=EXPIRED_AT)
+    with pytest.raises(ExpiredApproval):
+        job.transition(JobState.TASK_PLANNING)
+    assert job.state is JobState.APPROVED
+
+
+def test_a_trail_showing_work_on_a_lapsed_approval_is_refused_on_replay(new, reviewer):
+    """The engine's refusal, checked against the log by a reader who was not there."""
+    job = new("job-007c")
+    job.submit_for_governance()
+    job.approve(authority=reviewer, reason="approved")
+    job.transition(JobState.TASK_PLANNING)
+    forged = [
+        dataclasses.replace(
+            e,
+            metadata={
+                **e.metadata,
+                "approval": {**e.metadata["approval"], "expires_at": EXPIRED_AT.isoformat()},
+            },
+        )
+        if e.type_value == "GOVERNANCE_DECISION"
+        else e
+        for e in job.events
+    ]
+    with pytest.raises(ExecutionAfterExpiry):
+        replay_job(forged)
 
 
 # ---- [4] the governance gate ------------------------------------------------

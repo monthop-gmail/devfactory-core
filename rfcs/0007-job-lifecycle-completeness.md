@@ -2,6 +2,7 @@
 
 ## Status
 Draft — Architecture Owner direction agreed 2026-08-17 · pending maintainer approval per `GOVERNANCE.md`
+Amended 2026-08-19 — see [Amendment 1](#amendment-1--approved-may-time-out-2026-08-19).
 
 Amends [RFC-0001](0001-job-state-machine.md). Closes gaps 2, 3, and 4 of
 [issue #8](https://github.com/monthop-gmail/devfactory-core/issues/8) and resolves
@@ -81,7 +82,10 @@ proceed. Treating the first execution failure as job failure would make
 | state | meaning | entered from |
 | --- | --- | --- |
 | `CANCELLED` | explicitly stopped by a principal before completion | `DRAFT`, `GOVERNANCE_ANALYSIS`, `APPROVED`, `TASK_PLANNING`, `IN_PROGRESS`, `AWAITING_APPROVAL`, `VALIDATING`, `DEPLOYABLE` |
-| `TIMED_OUT` | exceeded an SLA or timeout policy without completing | `GOVERNANCE_ANALYSIS`, `TASK_PLANNING`, `IN_PROGRESS`, `AWAITING_APPROVAL`, `VALIDATING` |
+| `TIMED_OUT` | exceeded an SLA or timeout policy without completing | `GOVERNANCE_ANALYSIS`, `APPROVED`, `TASK_PLANNING`, `IN_PROGRESS`, `AWAITING_APPROVAL`, `VALIDATING` |
+
+`APPROVED` was added to that row by [Amendment 1](#amendment-1--approved-may-time-out-2026-08-19)
+on 2026-08-19; the rest of this section is as originally written.
 
 Both are terminal. Both require reason metadata, on the same rule RFC-0001
 already applies to `FAILED`.
@@ -131,6 +135,64 @@ An explicit state is used rather than a `blocked_on` flag because "explicit stat
 machine workflow" is an architectural principle of this repository, and because
 `STATE_TRANSITION` events already make transitions auditable — a flag change
 would not be, and RFC-0003 guarantees no silent state change.
+
+## Amendment 1 — `APPROVED` may time out (2026-08-19)
+
+Closes [issue #17](https://github.com/monthop-gmail/devfactory-core/issues/17), which
+[RFC-0010](0010-failable-states.md) opened and decided but deliberately did not implement:
+`TIMEOUTABLE` is this RFC's rule, so the amendment belongs here.
+
+**`APPROVED` is added to the `entered from` list for `TIMED_OUT`** in Decision 2. The
+five states listed originally become six.
+
+### Why
+
+Decision 2 gave `TIMED_OUT` to the states where something is waiting, and treated
+`APPROVED` as instantaneous — a job passes through it on the way to `TASK_PLANNING`. That
+is true when nothing goes wrong, and a state that is only instantaneous when nothing goes
+wrong is precisely the one worth a timeout. `APPROVED` had no automatic exit at all: its
+only edges were `TASK_PLANNING` and `CANCELLED`, so a job whose orchestration died after
+the decision was recorded sat there until a human noticed.
+
+The deciding argument is governance rather than liveness. **An approval must expire.** A
+job that can wait indefinitely in `APPROVED` may begin executing a week later under a
+verdict formed in a context that no longer holds — which is exactly what Decision 1 of
+this RFC refuses when it keeps `FAILED` terminal rather than let work resume on a *stale
+`APPROVED`*. That door was shut on one side and left open on the other.
+
+This is not a new rule so much as a gap in conforming to one we already publish.
+`approval/v1` — whose semantics this repository owns — has carried `expires_at` since it
+was written, and says what it means:
+
+> approval ที่หมดอายุแล้วใช้เดินงานไม่ได้ ต้องขอใหม่ ·
+> งานที่ค้างรออนุมัติจนเลยกำหนดควรเข้าสถานะ timeout ไม่ใช่รอตลอดไป
+
+The second half of that sentence names a destination the lifecycle did not offer. It does
+now.
+
+### What follows
+
+- `TIMED_OUT` from `APPROVED` requires reason metadata like every other entry into it, and
+  the cause belongs in it — `approval_expired` is a different fact from `sla_exceeded`, on
+  the same argument RFC-0010 Decision 2 makes about `analysis_error`.
+- An expired approval **may not be used to move a job into execution.** The engine refuses
+  it (`ExpiredApproval`), and a replay refuses a trail that shows it happening anyway
+  (`ExecutionAfterExpiry`) — the deadline and the moment are both recorded, so the log can
+  be judged against itself. Refusing is what "ใช้เดินงานไม่ได้ ต้องขอใหม่" says; tolerating
+  it would leave the guarantee written down and unenforced.
+- `expires_at` stays **optional**, because `approval/v1` makes it optional. An approval
+  with no deadline never expires, and existing jobs are unaffected. Requiring one would
+  make this engine stricter than the contract it conforms to, which is the same line
+  RFC-0002's self-approval invariant is held to.
+
+### What this amendment does not do
+
+It does not set timeout **policy values** — how long an approval is good for, per job
+type. That was out of scope in this RFC's Non-Goals and stayed out of scope in RFC-0010,
+and it still is. Nothing in this repository sets `expires_at` or decides when a timeout
+fires; orchestration does, and until it does, an approval granted without a deadline is
+still an approval with no expiry date. What changes here is that the deadline now has a
+meaning the engine enforces and a state to resolve into.
 
 ## Amended job lifecycle
 

@@ -33,6 +33,16 @@ nobody is watching. Exit code is non-zero if any check fails.
 | 6 | the log is complete and replays to the same state | `check_replay` |
 | 7 | a runnable script or a test suite | this directory — both |
 
+One flow arrived after issue #7 was written: `approval_expired` drives a job whose
+`APPROVE` lapsed where it sat, which settles at `TIMED_OUT` rather than at a
+failure. It is in the run so the trail checks 5 and 6 work on covers the
+`APPROVED → TIMED_OUT` edge and an approval carrying `expires_at`
+([RFC-0007 Amendment 1](../rfcs/0007-job-lifecycle-completeness.md#amendment-1--approved-may-time-out-2026-08-19),
+issue #17). The refusals that go with it — the engine declining to move a job on a
+lapsed approval, and replay declining a trail that shows it happening — are in
+`simulation/tests/test_e2e_flow.py` and `conformance/payload_check.py`, since
+neither can be *produced* by a run that behaves correctly.
+
 ## The forward path is read, not retyped
 
 `packages/core/devfactory_core/states.py` is the only place the transition table

@@ -14,6 +14,12 @@ outcomes are REJECTED, CANCELLED, or TIMED_OUT. See ``states.FAILABLE``.
 Governance decisions are RFC-0002, added by issue #5. A job holds the decision it
 is executing under (``approval``) rather than a boolean, because "approved" is
 not a fact about a job — it is a record of who decided what, when, and why.
+
+An approval can also say when it stops being one. ``approval/v1`` carries
+``expires_at`` and states what it means — *"approval ที่หมดอายุแล้วใช้เดินงานไม่ได้
+ต้องขอใหม่"* — so the engine refuses to move a job into execution under a lapsed
+approval, and RFC-0007's 2026-08-19 amendment gives such a job somewhere honest to
+land by putting ``APPROVED`` in ``states.TIMEOUTABLE`` (issue #17).
 """
 
 from __future__ import annotations
@@ -27,6 +33,7 @@ from .errors import (
     CrossTenantDecision,
     DecisionStateMismatch,
     ExecutionBeforeApproval,
+    ExpiredApproval,
     InvalidTransition,
     MissingApprovalContext,
     MissingAuthority,
@@ -175,6 +182,30 @@ class Job:
         return self._approval
 
     @property
+    def approval_expires_at(self) -> datetime | None:
+        """When the approval in force stops authorising anything, if it says.
+
+        ``None`` covers both "no approval" and "an approval with no deadline" —
+        two different situations that this property is not the place to tell
+        apart, since :attr:`approval` already does.
+        """
+        return self._approval.expires_at if self._approval is not None else None
+
+    @property
+    def approval_expired(self) -> bool:
+        """Whether the approval in force has run out as of now.
+
+        Reads the clock, so it is a question about this moment rather than a
+        stored fact — an approval expires by time passing, not by anything
+        happening to the job. The clock is only consulted when there is a deadline
+        to compare against, so a job whose approval carries no ``expires_at``
+        answers this without asking what time it is.
+        """
+        return self.approval_expires_at is not None and self._approval.is_expired(
+            self._clock()
+        )
+
+    @property
     def decisions(self) -> tuple[Decision, ...]:
         """Every governance decision made about this job, in order.
 
@@ -313,6 +344,7 @@ class Job:
         authority: Principal,
         reason: str,
         supersedes_decision_id: str | None = None,
+        expires_at: datetime | None = None,
     ) -> Decision:
         """Record a governance decision and move the job where it sends it.
 
@@ -326,6 +358,12 @@ class Job:
         Refuses ``REQUIRE_CHANGES`` with ``UnmappedDecision``: RFC-0002 declares
         it, no RFC here says where it sends a job, and the engine will not invent
         a destination. See ``states.DECISION_TARGET``.
+
+        ``expires_at`` is ``approval/v1``'s deadline for the decision, and it is
+        the caller's to set: the timeout *policy* — how long an approval is good
+        for, per job type — is out of scope for RFC-0007 and RFC-0010 alike, so
+        nothing here invents a default. Passing nothing produces an approval with
+        no deadline, which is the pre-existing behaviour and stays valid.
         """
         decision = DecisionType(decision)
         target = DECISION_TARGET.get(decision)
@@ -340,6 +378,7 @@ class Job:
             reason=reason,
             authority=authority,
             decided_at=self._clock(),
+            expires_at=expires_at,
             # "Changing your mind is a new approval that cites the old one"
             # (approval/v1). The citation is filled from this job's own history
             # rather than left to the caller to remember — it points at a
@@ -353,8 +392,19 @@ class Job:
         self.transition(target, reason=reason, principal=authority, decision=record)
         return record
 
-    def approve(self, *, authority: Principal, reason: str) -> Decision:
-        return self.decide(DecisionType.APPROVE, authority=authority, reason=reason)
+    def approve(
+        self,
+        *,
+        authority: Principal,
+        reason: str,
+        expires_at: datetime | None = None,
+    ) -> Decision:
+        return self.decide(
+            DecisionType.APPROVE,
+            authority=authority,
+            reason=reason,
+            expires_at=expires_at,
+        )
 
     def reject(self, *, authority: Principal, reason: str) -> Decision:
         return self.decide(DecisionType.REJECT, authority=authority, reason=reason)
@@ -436,6 +486,18 @@ class Job:
         # wrongly — which is exactly when it is worth having.
         if to in POST_APPROVAL and self._approval is None:
             raise ExecutionBeforeApproval(to.value)
+        # The same lock in its second half. Holding an approval is not enough if
+        # the approval has run out: ``approval/v1`` says an expired one cannot be
+        # used to run work and has to be granted again. POST_APPROVAL is the set
+        # of states that mean execution has been authorised, so it is exactly the
+        # set an expired authorisation must not open — including the way back out
+        # of AWAITING_APPROVAL, where a pause is what let the deadline pass.
+        if to in POST_APPROVAL and self.approval_expired:
+            raise ExpiredApproval(
+                to.value,
+                expired_at=self._approval.expires_at.isoformat(),
+                now=self._clock().isoformat(),
+            )
 
     def _decision_for(
         self, to: JobState, *, authority: Principal | None, reason: str | None

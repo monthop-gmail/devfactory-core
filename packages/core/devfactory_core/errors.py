@@ -94,6 +94,30 @@ class ExecutionBeforeApproval(JobStateMachineError):
         )
 
 
+class ExpiredApproval(JobStateMachineError):
+    """The approval in force has run out, so it authorises nothing further.
+
+    ``approval/v1`` states the rule on ``expires_at``: *"approval ที่หมดอายุแล้ว
+    ใช้เดินงานไม่ได้ ต้องขอใหม่"*. Letting the job proceed anyway would be exactly
+    the stale-``APPROVED`` execution RFC-0007 Decision 1 refuses — work running
+    under a verdict formed in a context that has since lapsed.
+
+    The remedy is a fresh decision, not a retry of this call. A job stuck here can
+    still be cancelled, and since RFC-0007's 2026-08-19 amendment an ``APPROVED``
+    job whose approval has lapsed can also be timed out (issue #17).
+    """
+
+    def __init__(self, requested: str, *, expired_at: str, now: str) -> None:
+        self.requested = requested
+        self.expired_at = expired_at
+        self.now = now
+        super().__init__(
+            f"cannot reach {requested}: the approval in force expired at {expired_at} "
+            f"and it is now {now} — an expired approval cannot be used to run work, "
+            f"it has to be granted again"
+        )
+
+
 class MissingAuthority(JobStateMachineError):
     """APPROVED and REJECTED are decisions and must name who made them."""
 

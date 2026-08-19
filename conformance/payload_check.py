@@ -137,18 +137,22 @@ def build_validator(schemas: dict[str, dict], target_id: str, non_schema_keys: l
 def run_scenario():
     """Drive real jobs through the real engine and return the log plus what happened.
 
-    Six jobs across two tenants, covering every terminal state, the mid-run
-    approval pause, rejection and resubmission, and recovery by supersession —
-    plus two inbound external events that no job caused.
+    Seven jobs across two tenants, covering every terminal state, the mid-run
+    approval pause, rejection and resubmission, recovery by supersession, and an
+    approval that expired where it sat — plus two inbound external events that no
+    job caused.
 
     The journeys themselves are ``simulation/flows.py``, which issue #7 made the
     one place they are written down. Two files describing the same lifecycle
     differently is how they end up disagreeing about it, and this check exists to
     catch disagreement rather than to add one.
     """
+    from datetime import datetime, timedelta, timezone
+
     from devfactory_core import JobState, Principal
     from devfactory_observability import EventLog, accept_external
     from simulation.flows import (
+        approval_expired,
         cancelled_by_a_person,
         failed_at,
         happy_path,
@@ -186,11 +190,21 @@ def run_scenario():
     # 5. an approval nobody answered, in a second tenant
     stalled = stalled_awaiting_approval(globex, job_id="job-006", authority=reviewer)
 
-    jobs = [happy, revised, failed, replacement, cancelled, stalled]
+    # 6. an approval that expired where it sat — the only flow that produces an
+    #    approval/v1 payload carrying expires_at, so the field is validated as a
+    #    real payload rather than asserted about in the abstract
+    expired = approval_expired(
+        acme,
+        job_id="job-008",
+        authority=reviewer,
+        expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )
+
+    jobs = [happy, revised, failed, replacement, cancelled, stalled, expired]
     for job in jobs:
         log.extend(job.events)
 
-    # 6. events from another system, which no job caused
+    # 7. events from another system, which no job caused
     external = [
         accept_external(
             {
@@ -313,6 +327,23 @@ def check_decisions(log, jobs, validator) -> None:
     else:
         ok("approval", "ทุก APPROVE มี decision record และ event คู่กับ STATE_TRANSITION")
 
+    # "approval ที่หมดอายุแล้วใช้เดินงานไม่ได้ ต้องขอใหม่" (approval/v1 expires_at)
+    # เขาเขียนความหมายไว้ใน schema แล้ว แต่ JSON Schema ตรวจให้ไม่ได้ว่า engine ทำตามไหม
+    # จึงต้องตรวจที่นี่ · ดู rfcs/0007 Amendment 1 · issue #17
+    expiring = [
+        payload
+        for payload in decisions
+        if (payload.get("metadata") or {}).get("approval", {}).get("expires_at")
+    ]
+    if expiring:
+        ok("approval", f"{len(expiring)} approval พก expires_at และผ่าน approval/v1")
+    else:
+        fail(
+            "approval",
+            "ไม่มี approval ที่พก expires_at เลย — เช็คข้างล่างจะกลายเป็นการตรวจสิ่งที่ไม่มีจริง",
+        )
+    check_expiry_enforced()
+
     # REQUIRE_CHANGES อยู่ใน vocabulary แต่ยังไม่มี RFC กำหนดว่ามันพา job ไปไหน
     # engine ต้องปฏิเสธ ไม่ใช่เดาปลายทาง — ดู states.DECISION_TARGET
     from devfactory_core import DecisionType, Job, Principal
@@ -334,6 +365,92 @@ def check_decisions(log, jobs, validator) -> None:
         fail("approval", "REQUIRE_CHANGES ถูกรับเข้า — ต้องปฏิเสธจนกว่าจะมี RFC กำหนดปลายทาง")
     except UnmappedDecision:
         ok("approval", "REQUIRE_CHANGES ถูกปฏิเสธ — ยังไม่มี RFC กำหนดปลายทางของมัน")
+
+
+def check_expiry_enforced() -> None:
+    """Would we notice a job still running on an approval that had expired?
+
+    Two sides, because the guarantee has two. The engine must refuse to move the
+    job; and if something else moved it anyway, the trail must not read back as
+    though that were fine — the deadline and the moment are both recorded, so the
+    log can be judged against itself by a reader who was not there.
+
+    The second half is checked by forging a trail rather than by producing one,
+    for the same reason the ``REQUIRE_CHANGES`` probe below exists: the engine
+    cannot produce the record we need to catch, and a check that can only see
+    records the engine agrees with is not checking the engine.
+    """
+    import dataclasses
+    from datetime import datetime, timedelta, timezone
+
+    from devfactory_core import JobState, Principal
+    from devfactory_core.errors import ExpiredApproval
+    from devfactory_observability import ExecutionAfterExpiry, replay_job
+    from simulation.flows import job_factory
+
+    # A clock that can be pushed forward, because an approval expires by time
+    # passing and nothing else. Granting one that was already stale would be a
+    # different, less interesting record.
+    start = datetime(2026, 8, 19, 9, 0, tzinfo=timezone.utc)
+    now = {"t": start}
+
+    def clock() -> datetime:
+        now["t"] += timedelta(seconds=1)
+        return now["t"]
+
+    owner = Principal("human", "alice")
+    reviewer = Principal("human", "bob")
+    new = job_factory(
+        tenant_id="acme", workspace_id="ws-core", principal=owner, clock=clock
+    )
+    deadline = start + timedelta(minutes=5)
+
+    lapsed = new("job-009")
+    lapsed.submit_for_governance()
+    lapsed.approve(authority=reviewer, reason="approved", expires_at=deadline)
+    now["t"] = deadline + timedelta(hours=1)   # nobody came for the job in time
+    try:
+        lapsed.transition(JobState.TASK_PLANNING)
+        fail("approval", "งานเดินเข้า TASK_PLANNING ได้ด้วย approval ที่หมดอายุแล้ว")
+    except ExpiredApproval:
+        ok("approval", "approval ที่หมดอายุใช้เดินงานต่อไม่ได้ — engine ปฏิเสธ")
+
+    # The job is not stuck: RFC-0007 Amendment 1 gives it somewhere honest to land.
+    lapsed.time_out(reason="approval_expired — the approval lapsed before planning began")
+    if lapsed.state is JobState.TIMED_OUT:
+        ok("approval", "งานที่ถือ approval หมดอายุเข้า TIMED_OUT ได้ (rfcs/0007 Amendment 1)")
+    else:
+        fail("approval", f"งานที่ถือ approval หมดอายุไปจบที่ {lapsed.state.value}")
+
+    # Now the log. Same journey with an approval that was still valid, then the
+    # recorded deadline moved into the past — which is what "the job kept going on
+    # an expired approval" looks like when it is read back rather than watched.
+    ran_on = new("job-010")
+    ran_on.submit_for_governance()
+    ran_on.approve(
+        authority=reviewer, reason="approved", expires_at=now["t"] + timedelta(hours=1)
+    )
+    ran_on.transition(JobState.TASK_PLANNING)
+    forged = [
+        dataclasses.replace(
+            event,
+            metadata={
+                **event.metadata,
+                "approval": {
+                    **event.metadata["approval"],
+                    "expires_at": start.isoformat(),
+                },
+            },
+        )
+        if event.type_value == "GOVERNANCE_DECISION"
+        else event
+        for event in ran_on.events
+    ]
+    try:
+        replay_job(forged)
+        fail("approval", "trail ที่บันทึกว่างานเดินต่อหลัง approval หมดอายุ ยัง replay ผ่าน")
+    except ExecutionAfterExpiry:
+        ok("approval", "replay จับได้ว่า trail บันทึกการเดินงานหลัง approval หมดอายุ")
 
 
 def check_gap_expiry(gaps: list[dict], today: str) -> None:

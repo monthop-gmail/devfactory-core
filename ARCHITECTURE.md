@@ -29,6 +29,11 @@ it caused, so no job reaches `APPROVED` without a record of who decided it and w
 says which state it sends a job to. See [RFC-0002](rfcs/0002-governance-decision-contract.md)
 and `packages/core/devfactory_core/decision.py`.
 
+An approval can also carry `expires_at`, and one that has passed it authorises nothing:
+the engine refuses to move the job into execution, and a job left holding a lapsed
+approval reaches `TIMED_OUT` rather than waiting indefinitely
+([RFC-0007 Amendment 1](rfcs/0007-job-lifecycle-completeness.md#amendment-1--approved-may-time-out-2026-08-19)).
+
 ## Multi-Tenancy
 Tenant → Workspace → Resource. `tenant_id` is required on every job, decision, and
 event; isolation is enforced at the storage layer, not by query filter.
