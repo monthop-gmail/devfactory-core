@@ -77,6 +77,24 @@ is that `FAILED` keeps meaning *approved work that did not succeed*, which is wh
 `supersedes_job_id` recovery path in RFC-0007 assumes. A `FAILED` job that never passed
 governance would have nothing coherent to supersede.
 
+**Requirement that follows from accepting this.** `TIMED_OUT` must be distinguishable by cause.
+The terminal-state `reason` metadata — already mandatory under RFC-0001 — must record at least
+`sla_exceeded` versus `analysis_error` (carrying the underlying error for the latter). Without it
+the audit trail cannot tell *the job was too slow* from *the analyzer broke*, which is exactly the
+distinction RFC-0007 added `TIMED_OUT` and `CANCELLED` to preserve. This needs no new state and no
+change to the transition table.
+
+**Operational note.** Because a job that crashes in the first second still waits out its SLA, the
+timeout for `GOVERNANCE_ANALYSIS` should be set materially shorter than for states where work is
+genuinely running. Values remain out of scope (see Non-Goals); the recommendation is not.
+
+**Retry belongs to orchestration, not to this table.** RFC-0004 and RFC-0007 Decision 1 already
+hold that *"a job does not enter `FAILED` because one execution failed"* — orchestration owns
+retry. One analyzer fault should therefore not move the job at all. `TIMED_OUT` is reached only
+when retries are exhausted or orchestration itself is gone, and at that point it states the literal
+truth: nothing moved this job within its allotted time. The terminal is correct, not merely the
+last one available.
+
 Recorded here explicitly so a future reader does not mistake it for an omission.
 
 ## Non-Goals
@@ -84,7 +102,7 @@ Recorded here explicitly so a future reader does not mistake it for an omission.
 Job-level timeout **policy values** stay out of scope, exactly as RFC-0007 left them.
 This RFC only states which terminal a malfunction resolves into.
 
-## Open Question — `APPROVED` can stall with no automatic exit
+## Decided — `APPROVED` will be added to `TIMEOUTABLE` (tracked separately)
 
 `APPROVED` is in neither `FAILABLE` nor `TIMEOUTABLE`. Its only exits are `TASK_PLANNING`
 and `CANCELLED`. If orchestration dies after the approval is recorded but before planning
@@ -95,10 +113,18 @@ Treating `APPROVED` as instantaneous is a reasonable reading — that is presuma
 left out of `TIMEOUTABLE` — but a state that is only instantaneous when nothing goes wrong
 is precisely the one worth a timeout.
 
-**Recommendation:** add `APPROVED` to `TIMEOUTABLE` in a follow-up. Deliberately not decided
-here — it is a `TIMED_OUT` question, and issue #14 asked about `FAILED`. Deciding it in this
-RFC would also mean a code change, whereas everything above is ratification. Suggest a
-separate issue.
+**Decision (2026-08-19):** yes — `APPROVED` is to be added to `TIMEOUTABLE`. The deciding
+argument is governance rather than liveness: **an approval must expire.** An `APPROVED` job that
+can wait indefinitely may begin executing a week later under a verdict formed in a context that no
+longer holds — the very thing RFC-0007 Decision 1 refuses when it forbids reviving a `FAILED` job
+(*"execution continuing on a stale APPROVED"*). That door is currently shut on one side and left
+open on the other.
+
+Ownership note: `TIMEOUTABLE` is RFC-0007's rule, so the amendment belongs there, not in this RFC,
+which is about `FAILED`. It is also a behaviour change, whereas everything above is ratification.
+
+**Tracked in [#17](https://github.com/monthop-gmail/devfactory-core/issues/17).** Not implemented
+in this PR by design.
 
 ## Open Question — `not_derived` changes are unversioned
 

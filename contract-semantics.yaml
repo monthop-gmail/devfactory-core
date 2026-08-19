@@ -216,8 +216,10 @@ not_derived:
     # rfcs/0007
     timeoutable: [GOVERNANCE_ANALYSIS, TASK_PLANNING, IN_PROGRESS, AWAITING_APPROVAL, VALIDATING]
 
-    # rfcs/0007 — หยุดงานได้ทุกจุดก่อนที่มันจะ settle
-    cancellable: ทุก state ที่ไม่อยู่ใน terminal
+    # rfcs/0007 — หยุดงานได้ทุกจุดก่อนที่มันจะ settle (= states ทั้งหมด ลบ terminal)
+    # เขียนเป็น list เหมือน failable/timeoutable เพื่อให้เครื่องที่อ่านสามคีย์นี้ parse ได้แบบเดียวกัน
+    cancellable: [DRAFT, GOVERNANCE_ANALYSIS, APPROVED, REJECTED, TASK_PLANNING, IN_PROGRESS,
+                  AWAITING_APPROVAL, VALIDATING, DEPLOYABLE]
 
     invariants:
       - execution ห้ามเกิดก่อน APPROVED
