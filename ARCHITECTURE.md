@@ -21,6 +21,14 @@ Terminal: COMPLETED · FAILED · CANCELLED · TIMED_OUT
 Full spec: [packages/core/state-machine.md](packages/core/state-machine.md) ·
 [RFC-0001](rfcs/0001-job-state-machine.md) as amended by [RFC-0007](rfcs/0007-job-lifecycle-completeness.md)
 
+## Governance Decisions
+`APPROVE` and `REJECT` move a job out of `GOVERNANCE_ANALYSIS`; each is recorded as an
+immutable decision and emitted as `GOVERNANCE_DECISION` next to the `STATE_TRANSITION`
+it caused, so no job reaches `APPROVED` without a record of who decided it and why.
+`REQUIRE_CHANGES` is part of the vocabulary and is refused by the engine until an RFC
+says which state it sends a job to. See [RFC-0002](rfcs/0002-governance-decision-contract.md)
+and `packages/core/devfactory_core/decision.py`.
+
 ## Multi-Tenancy
 Tenant → Workspace → Resource. `tenant_id` is required on every job, decision, and
 event; isolation is enforced at the storage layer, not by query filter.

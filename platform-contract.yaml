@@ -25,8 +25,9 @@ conformance:
   #   1. manifest        ไฟล์นี้
   #   2. conformance test ใน CI ที่ validate payload จริง
   #                      conformance/payload_check.py — รัน scenario ผ่าน job state
-  #                      machine และ event log จริง แล้ว validate event 37 ตัว
-  #                      กับ event/v1 ที่ pin ไว้ · ไม่มี fixture ที่เขียนขึ้นเพื่อให้ schema ผ่าน
+  #                      machine และ event log จริง แล้ว validate event 42 ตัว
+  #                      กับ event/v1 ที่ pin ไว้ และ decision 5 ใบกับ approval/v1
+  #                      · ไม่มี fixture ที่เขียนขึ้นเพื่อให้ schema ผ่าน
   #   3. release gate    job `core` และ `conformance` ใน .github/workflows/test.yml
   #                      รันทุก PR
   #
@@ -93,7 +94,9 @@ blocking:
 remaining:
   - เปิด branch protection แล้วตั้ง check ของ workflow test เป็น required
     เพื่อให้ release gate บล็อกการ merge ได้จริง (ADR-0006 ข้อ 3)
-  - governance decision interface (issue #5) · end-to-end simulation (issue #7)
+  - end-to-end simulation (issue #7)
+  - RFC กำหนดปลายทางของ REQUIRE_CHANGES — vocabulary มีครบ 3 ค่าแล้ว
+    แต่ engine ปฏิเสธค่านี้อยู่ (UnmappedDecision) เพราะยังไม่มี RFC บอกว่า job ไปไหนต่อ
 
 registration: conforming   # registered | conforming
 
@@ -110,4 +113,17 @@ gaps:
     workaround: >-
       บันทึกเป็น known_gaps ใน conformance/pinned.yaml แคบไว้ที่ field event_type
       ของ event ที่ source.kind = external เท่านั้น · หมดอายุ 2026-11-18
+    severity: low
+
+  - id: approval-supersedes-field-missing
+    issue: https://github.com/monthop-gmail/agent-platform/issues/22   # เปิดแล้ว 2026-08-19 (พบตอนทำ issue #5)
+    detail: >-
+      approval/v1 มี guarantee ว่า "decision เป็น immutable · การเปลี่ยนใจคือ approval
+      ใบใหม่ที่อ้างใบเดิม" แต่ schema ไม่มี field ให้ใส่การอ้างนั้นเลย — ทำตาม guarantee
+      แล้วไม่มีที่เก็บผลลัพธ์
+    workaround: >-
+      ฝั่งเราใส่ field ชื่อ supersedes_decision_id ลงใน payload เอง
+      (Decision.as_payload · packages/core/devfactory_core/decision.py)
+      approval/v1 ไม่ได้ตั้ง additionalProperties: false จึงยัง validate ผ่าน
+      ถ้า agent-platform ตั้งชื่อ field นี้เองภายหลัง งานที่เหลือคือ rename ไม่ใช่ออกแบบใหม่
     severity: low

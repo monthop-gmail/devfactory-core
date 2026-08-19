@@ -36,10 +36,13 @@ class EventType(str, Enum):
     which is noted below and is not enforced by this enum.
 
     Emitted by the job state machine (``packages/core``):
-        ``JOB_CREATED`` · ``STATE_TRANSITION`` · ``JOB_COMPLETED``
-
-    Emitted by governance (issue #5):
+        ``JOB_CREATED`` · ``STATE_TRANSITION`` · ``JOB_COMPLETED`` ·
         ``GOVERNANCE_DECISION``
+
+    ``GOVERNANCE_DECISION`` is emitted alongside the ``STATE_TRANSITION`` it
+    causes, never instead of it (issue #5, RFC-0002): "every APPROVE is
+    auditable" is not satisfied by a state change that leaves no record of who
+    decided it. Its subject is the approval; the job is on ``job_id``.
 
     Emitted by orchestration and execution (issue #7 and later):
         ``TASK_ASSIGNED`` · ``EXECUTION_STARTED`` · ``EXECUTION_FAILED``

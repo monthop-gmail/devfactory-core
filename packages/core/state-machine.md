@@ -47,6 +47,39 @@ Execution is forbidden before `APPROVED`.
 before `APPROVED`, where the honest outcomes are `REJECTED`, `CANCELLED`, or `TIMED_OUT`
 ([RFC-0010](../../rfcs/0010-failable-states.md)).
 
+## Governance decisions
+
+Per [RFC-0002](../../rfcs/0002-governance-decision-contract.md), rendered on the wire
+as `approval/v1`. A decision is what moves a job out of `GOVERNANCE_ANALYSIS`; the
+engine records it and emits `GOVERNANCE_DECISION` alongside the `STATE_TRANSITION` it
+caused — an approval that leaves no record is not auditable, so there is no path to
+`APPROVED` that skips one.
+
+| decision | job goes to |
+| --- | --- |
+| `APPROVE` | `APPROVED` |
+| `REJECT` | `REJECTED` |
+| `REQUIRE_CHANGES` | **refused — `UnmappedDecision`** |
+
+`REQUIRE_CHANGES` is part of the vocabulary (a closed set: dropping it would narrow
+the contract this repository publishes) and has no destination, because no RFC here
+says which state a job returned for changes lands in. `REJECTED` is ruled out by the
+invariant *"REQUIRE_CHANGES ไม่ใช่ REJECT"*; `DRAFT` needs a `GOVERNANCE_ANALYSIS →
+DRAFT` edge nothing declares; a fourteenth state is a lifecycle change. The engine
+refuses rather than guessing — see `states.DECISION_TARGET`, and
+[the open questions](#open-questions) below.
+
+Guarantees the engine enforces, not just documents:
+
+- decisions are immutable — changing one's mind is a second decision citing the first
+  (`supersedes_decision_id`)
+- a decision lives in the same tenant and workspace as the job it decides about;
+  a mismatch is rejected, never coerced
+- an agent may not `APPROVE` a job it is the principal for — *no agent has total
+  authority*
+- execution stays locked until the job holds an `APPROVE` record, not merely the
+  `APPROVED` state
+
 ## AWAITING_APPROVAL
 
 Entered when at least one execution of the job is in `awaiting_approval`
@@ -72,6 +105,19 @@ definitions:
 ## Guarantees
 
 - Every transition emits a `STATE_TRANSITION` event — no silent state change.
-- `APPROVED` requires an explicit governance decision.
+- `APPROVED` requires an explicit governance decision, recorded and emitted.
 - `FAILED`, `CANCELLED`, and `TIMED_OUT` all require reason metadata.
 - `CANCELLED` records the cancelling principal.
+
+## Open questions
+
+Recorded rather than answered — each needs an RFC, not a code change.
+
+- Where does `REQUIRE_CHANGES` send a job? Until an RFC says, the engine refuses it.
+- May a *person* approve a job they filed? `approval/v1` and RFC-0002 both state the
+  self-approval invariant about agents only, so the engine refuses agent
+  self-approval and allows the human case. Widening it would make this engine
+  stricter than the contract it conforms to.
+- `APPROVED` is in neither `FAILABLE` nor `TIMEOUTABLE`, so an approval nobody acts on
+  has no automatic exit — [RFC-0010](../../rfcs/0010-failable-states.md) records this,
+  and it is issue #17.

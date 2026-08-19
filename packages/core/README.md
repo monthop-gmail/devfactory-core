@@ -1,12 +1,15 @@
 # core module
 
-The job state machine — the control plane's lifecycle engine.
+The job state machine and the governance decision interface that gates it.
 
 Spec: [`state-machine.md`](state-machine.md) — [RFC-0001](../../rfcs/0001-job-state-machine.md)
 as amended by [RFC-0007](../../rfcs/0007-job-lifecycle-completeness.md), with the tenant
-model from [RFC-0006](../../rfcs/0006-tenant-workspace-model.md).
+model from [RFC-0006](../../rfcs/0006-tenant-workspace-model.md) and decisions from
+[RFC-0002](../../rfcs/0002-governance-decision-contract.md).
 
-In memory only. No persistence, no policy engine, no API — those are issues #5, #6, and #7.
+In memory only. No persistence, no policy engine, no API. *Approval* is a decision by an
+authority; *policy* — whether approval was needed at all — is `policy/v1` and is not
+here.
 
 ## Use
 
@@ -14,6 +17,7 @@ In memory only. No persistence, no policy engine, no API — those are issues #5
 from devfactory_core import Job, JobState, Principal
 
 alice = Principal("human", "alice")
+bob = Principal("human", "bob")
 job = Job(
     job_id="job-001",
     tenant_id="default",      # RFC-0006: never omitted, even single-tenant
@@ -22,14 +26,18 @@ job = Job(
 )
 
 job.submit_for_governance(reason="ready for review")
-job.approve(authority=alice, reason="scope matches milestone v0.1")
+
+decision = job.approve(authority=bob, reason="scope matches milestone v0.1")
+assert job.approval is decision          # what execution runs under, not a boolean
+assert decision.as_payload()["decision"] == "APPROVE"   # approval/v1 wire shape
+
 job.transition(JobState.TASK_PLANNING)
 job.transition(JobState.IN_PROGRESS)
 
 job.pause_for_approval(reason="merge needs sign-off")
 assert job.state is JobState.AWAITING_APPROVAL
 assert job.awaiting_from is JobState.IN_PROGRESS
-job.resume(reason="approved", principal=alice)
+job.resume(reason="approved", principal=bob)
 
 job.transition(JobState.VALIDATING)
 job.transition(JobState.DEPLOYABLE)
@@ -54,27 +62,49 @@ enforced, so the engine rejects rather than repairs.
 | pausing outside `IN_PROGRESS` / `VALIDATING` / `DEPLOYABLE` | `MissingApprovalContext` |
 | resuming into a state other than `awaiting_from` | `WrongResumeState` |
 | a malformed identifier | `InvalidIdentifier` — `identity/v1` `Id` form |
+| `decide(REQUIRE_CHANGES)` | `UnmappedDecision` — no RFC says where it sends a job |
+| a decision missing decision, reason, authority, or timestamp | `IncompleteDecision` |
+| an agent approving the job it is the principal for | `SelfApproval` |
+| a decision from another tenant or workspace | `CrossTenantDecision` — rejected, never coerced |
+| a decision about another job | `WrongDecisionSubject` |
+| a decision that does not produce the transition being made | `DecisionStateMismatch` |
 
 A refused call leaves the job untouched and writes nothing to the audit trail.
 
 ## Events
 
 Construction emits `JOB_CREATED`; every accepted transition emits `STATE_TRANSITION`;
-reaching `COMPLETED` also emits `JOB_COMPLETED`. There is no way to change state
-without going through `transition()`, which is what makes *no silent state change*
-hold rather than merely be documented.
+entering `APPROVED` or `REJECTED` also emits `GOVERNANCE_DECISION`; reaching
+`COMPLETED` also emits `JOB_COMPLETED`. There is no way to change state without going
+through `transition()`, which is what makes *no silent state change* hold rather than
+merely be documented — and no way to reach `APPROVED` without a decision record, which
+is what makes *every APPROVE is auditable* hold.
 
-`event_payloads()` renders the trail in `event/v1` wire shape. It is **not** validated
+`event_payloads()` renders the trail in `event/v1` wire shape, and
+`Decision.as_payload()` renders a decision in `approval/v1` shape. Neither is validated
 here — owning a copy of the schema would be a parallel schema, which
-[RFC-0005](../../rfcs/0005-platform-contract-authority.md) Rule 4 forbids. Validation
-against the pinned contract is issue #6, and these payloads are what it will validate.
+[RFC-0005](../../rfcs/0005-platform-contract-authority.md) Rule 4 forbids.
+`conformance/payload_check.py` validates both against the pinned contracts.
+
+## Decisions
+
+```python
+from devfactory_core import DecisionType
+
+job.decide(DecisionType.APPROVE, authority=bob, reason="scope agreed")  # == job.approve(...)
+job.decisions          # every decision made about this job, immutable, in order
+job.approval           # the APPROVE it executes under, or None
+
+job.decide(DecisionType.REQUIRE_CHANGES, authority=bob, reason="add tests")
+# UnmappedDecision: declared by RFC-0002, but no RFC says which state it sends a job to
+```
 
 ## Tests
 
 ```bash
 cd packages/core
-python -m pytest                       # 235 tests
-python -m pytest --cov=devfactory_core # coverage gate at 90%, currently 100%
+python -m pytest                       # the full core suite
+python -m pytest --cov=devfactory_core # coverage gate at 90%
 ```
 
 ## Which states may fail
