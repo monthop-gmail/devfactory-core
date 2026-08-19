@@ -1,7 +1,7 @@
 """The in-memory job state machine.
 
 Canonical spec: ``packages/core/state-machine.md`` — RFC-0001 as amended by
-RFC-0007 and RFC-0010, with the tenant model from RFC-0006.
+RFC-0007, RFC-0010 and RFC-0011, with the tenant model from RFC-0006.
 
 Scope, per issue #2: in memory, no persistence, no policy engine, no API. What
 this module owns is the lifecycle and the guards on it.
@@ -14,6 +14,12 @@ outcomes are REJECTED, CANCELLED, or TIMED_OUT. See ``states.FAILABLE``.
 Governance decisions are RFC-0002, added by issue #5. A job holds the decision it
 is executing under (``approval``) rather than a boolean, because "approved" is
 not a fact about a job — it is a record of who decided what, when, and why.
+
+All three of RFC-0002's decisions are executable since RFC-0011, which settled
+where ``REQUIRE_CHANGES`` sends a job: ``DRAFT``, straight from the gate. It
+clears the approval exactly as ``REJECT`` does — being told to make changes is not
+being told to proceed — and is told apart from a rejection by its *route*, since
+it never passes through ``REJECTED``. See ``states.DECISION_TARGET``.
 
 An approval can also say when it stops being one. ``approval/v1`` carries
 ``expires_at`` and states what it means — *"approval ที่หมดอายุแล้วใช้เดินงานไม่ได้
@@ -49,11 +55,11 @@ from .events import Event, EventType, new_event_id, utc_now
 from .identity import Principal, validate_id
 from .states import (
     APPROVAL_PAUSABLE,
-    DECISION_BY_TARGET,
     DECISION_TARGET,
     POST_APPROVAL,
     TERMINAL,
     JobState,
+    decision_for_edge,
     reachable_from,
 )
 
@@ -62,11 +68,6 @@ from .states import (
 REASON_REQUIRED: frozenset[JobState] = frozenset(
     {JobState.FAILED, JobState.CANCELLED, JobState.TIMED_OUT}
 )
-
-#: States whose entry is a decision and must name an accountable authority.
-#: Derived from ``DECISION_TARGET`` rather than listed again, so a decision type
-#: gaining a destination cannot leave its destination state ungoverned.
-AUTHORITY_REQUIRED: frozenset[JobState] = frozenset(DECISION_TARGET.values())
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,19 +260,24 @@ class Job:
             raise TypeError("decision must be a Decision — 'who decided what' is required")
         self._check_not_terminal()
         self._check_edge(to)
-        self._check_guards(to, reason=reason, principal=principal)
+        # Whether this move *is* a governance decision is a property of the edge,
+        # not of the destination — since RFC-0011, DRAFT is reached both by a
+        # REQUIRE_CHANGES from the gate and by the ordinary revision step out of
+        # REJECTED, and only the first is a verdict.
+        decides = decision_for_edge(self._state, to)
+        self._check_guards(to, reason=reason, principal=principal, decides=decides)
 
         record: Decision | None = None
-        if to in AUTHORITY_REQUIRED:
+        if decides is not None:
             # "Every APPROVE is auditable" is a guarantee about the state, not
-            # about which method the caller reached for. Entering APPROVED or
-            # REJECTED through the generic API therefore mints the same record
-            # decide() would have: the guards above have already established that
-            # an authority and a reason are present.
+            # about which method the caller reached for. Entering a decision state
+            # through the generic API therefore mints the same record decide()
+            # would have: the guards above have already established that an
+            # authority and a reason are present.
             record = decision if decision is not None else self._decision_for(
-                to, authority=principal, reason=reason
+                decides, authority=principal, reason=reason
             )
-            self._check_decision(record, to)
+            self._check_decision(record, decides, to)
         elif decision is not None:
             raise DecisionStateMismatch(decision.decision.value, to.value)
 
@@ -283,12 +289,16 @@ class Job:
         elif previous is JobState.AWAITING_APPROVAL:
             self._awaiting_from = None
 
-        if to is JobState.APPROVED:
+        if decides is DecisionType.APPROVE:
             self._approval = record
-        elif to is JobState.REJECTED:
-            # A rejected job returns to DRAFT for revision. The approval that was
-            # never granted must not carry over, and an approval granted to an
-            # earlier revision must not authorise the revised one.
+        elif decides is not None:
+            # A verdict that is not an APPROVE leaves the job unauthorised, and it
+            # goes back to DRAFT for revision — REJECT by way of REJECTED,
+            # REQUIRE_CHANGES directly. Either way the approval that was never
+            # granted must not carry over, and an approval granted to an earlier
+            # revision must not authorise the revised one. RFC-0011 keeps
+            # REQUIRE_CHANGES on this side of the line deliberately: "งานยังมีชีวิต"
+            # says the job may come back, not that it may proceed.
             self._approval = None
 
         self._state = to
@@ -355,9 +365,9 @@ class Job:
         decision, and a move without a decision is what this whole module exists
         to prevent.
 
-        Refuses ``REQUIRE_CHANGES`` with ``UnmappedDecision``: RFC-0002 declares
-        it, no RFC here says where it sends a job, and the engine will not invent
-        a destination. See ``states.DECISION_TARGET``.
+        All three of RFC-0002's decisions are accepted. A decision type that
+        somehow has no destination is refused with ``UnmappedDecision`` rather
+        than sent somewhere invented — see that error for when it can arise.
 
         ``expires_at`` is ``approval/v1``'s deadline for the decision, and it is
         the caller's to set: the timeout *policy* — how long an approval is good
@@ -408,6 +418,17 @@ class Job:
 
     def reject(self, *, authority: Principal, reason: str) -> Decision:
         return self.decide(DecisionType.REJECT, authority=authority, reason=reason)
+
+    def require_changes(self, *, authority: Principal, reason: str) -> Decision:
+        """Send the job back for changes — RFC-0011.
+
+        The job lands in ``DRAFT`` holding no approval, ready to be revised and
+        resubmitted. It is not a rejection and its trail does not say it was: the
+        route skips ``REJECTED`` entirely.
+        """
+        return self.decide(
+            DecisionType.REQUIRE_CHANGES, authority=authority, reason=reason
+        )
 
     def pause_for_approval(self, *, reason: str | None = None) -> Event:
         return self.transition(JobState.AWAITING_APPROVAL, reason=reason)
@@ -473,14 +494,22 @@ class Job:
         )
 
     def _check_guards(
-        self, to: JobState, *, reason: str | None, principal: Principal | None
+        self,
+        to: JobState,
+        *,
+        reason: str | None,
+        principal: Principal | None,
+        decides: DecisionType | None,
     ) -> None:
         if to in REASON_REQUIRED and not (reason and reason.strip()):
             raise MissingReason(to.value)
         if to is JobState.CANCELLED and principal is None:
             raise MissingPrincipal(to.value)
-        if to in AUTHORITY_REQUIRED and (principal is None or not (reason and reason.strip())):
-            raise MissingAuthority(to.value)
+        # A decision names who made it and why, whichever decision it is. Asking
+        # the edge rather than a list of destination states means a decision type
+        # gaining a destination cannot leave that edge ungoverned.
+        if decides is not None and (principal is None or not (reason and reason.strip())):
+            raise MissingAuthority(to.value, decision=decides.value)
         # Structural backstop for the direction lock. The table already makes
         # APPROVED the only way in, so this can only fire if the table is edited
         # wrongly — which is exactly when it is worth having.
@@ -500,13 +529,13 @@ class Job:
             )
 
     def _decision_for(
-        self, to: JobState, *, authority: Principal | None, reason: str | None
+        self, decides: DecisionType, *, authority: Principal | None, reason: str | None
     ) -> Decision:
-        """Mint the decision that entering ``to`` must have been.
+        """Mint the decision this edge must have been.
 
-        Only reachable for states in ``AUTHORITY_REQUIRED``, and only after the
-        guards have established that both an authority and a reason are present —
-        so nothing here is invented to fill a field.
+        Only reachable for an edge ``states.decision_for_edge`` names, and only
+        after the guards have established that both an authority and a reason are
+        present — so nothing here is invented to fill a field.
         """
         assert authority is not None and reason is not None  # guaranteed by _check_guards
         return Decision(
@@ -514,7 +543,7 @@ class Job:
             tenant_id=self._tenant_id,
             workspace_id=self._workspace_id,
             subject=Subject("job", self._job_id),
-            decision=DECISION_BY_TARGET[to],
+            decision=decides,
             reason=reason,
             authority=authority,
             decided_at=self._clock(),
@@ -523,9 +552,18 @@ class Job:
             ),
         )
 
-    def _check_decision(self, record: Decision, to: JobState) -> None:
-        """Refuse a decision that does not belong to this job or this transition."""
-        if DECISION_TARGET.get(record.decision) is not to:
+    def _check_decision(
+        self, record: Decision, decides: DecisionType, to: JobState
+    ) -> None:
+        """Refuse a decision that does not belong to this job or this transition.
+
+        Compared against the decision the *edge* is, not merely against the
+        destination: since RFC-0011 two decisions can share a destination by way of
+        different routes, and a REJECT offered for the direct
+        ``GOVERNANCE_ANALYSIS -> DRAFT`` hop would otherwise record a rejection on
+        a trail that never entered ``REJECTED``.
+        """
+        if record.decision is not decides:
             raise DecisionStateMismatch(record.decision.value, to.value)
         if record.subject != Subject("job", self._job_id):
             raise WrongDecisionSubject(

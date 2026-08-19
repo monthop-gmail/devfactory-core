@@ -119,34 +119,49 @@ class ExpiredApproval(JobStateMachineError):
 
 
 class MissingAuthority(JobStateMachineError):
-    """APPROVED and REJECTED are decisions and must name who made them."""
+    """A transition that *is* a governance decision must name who made it.
 
-    def __init__(self, state: str) -> None:
+    Which transitions those are is the edge, not the destination state:
+    ``GOVERNANCE_ANALYSIS -> DRAFT`` is a ``REQUIRE_CHANGES`` and needs an
+    authority, while ``REJECTED -> DRAFT`` is the revision step after a verdict
+    already recorded and does not. See ``states.decision_for_edge``.
+    """
+
+    def __init__(self, state: str, *, decision: str | None = None) -> None:
         self.state = state
+        self.decision = decision
+        named = f"entering {state} as a {decision}" if decision else state
         super().__init__(
-            f"{state} requires an accountable authority and a reason — "
-            f"an approval nobody signed is not auditable"
+            f"{named} requires an accountable authority and a reason — "
+            f"a decision nobody signed is not auditable"
         )
 
 
 class UnmappedDecision(JobStateMachineError):
-    """A decision this repository has declared but has not yet said what to do with.
+    """A declared decision type with nowhere in the lifecycle to send a job.
 
-    ``REQUIRE_CHANGES`` is the only one today. RFC-0002 declares all three
-    decision types and the vocabulary is a closed set, so the type has to exist;
-    what no RFC here says is **which state a job lands in** when it is returned
-    for changes. The engine refuses rather than guessing, because a governance
-    record whose recorded meaning is not the meaning that was made is worse than
-    a refusal. See ``states.DECISION_TARGET`` for the candidates and why each
-    needs an RFC first.
+    **Nothing raises this today**, and that is the point of keeping it. Since
+    RFC-0011 gave ``REQUIRE_CHANGES`` its destination, all three of RFC-0002's
+    decision types are in ``states.DECISION_TARGET``. The vocabulary is a closed
+    set, so a fourth value can only arrive through an RFC here — and this is what
+    that RFC's implementation runs into if it adds the value to
+    :class:`~devfactory_core.decision.DecisionType` without also declaring the edge
+    it travels and the entry in ``DECISION_TARGET`` that names it.
+
+    Deleting it would turn that omission into a ``KeyError`` from inside
+    :meth:`~devfactory_core.job.Job.decide` — an accident rather than a refusal.
+    Governance code should refuse loudly and say why, and the failure it guards
+    against is the one governance can least afford: an audit record whose recorded
+    meaning is not the meaning that was made.
     """
 
     def __init__(self, decision: str) -> None:
         self.decision = decision
         super().__init__(
-            f"{decision} is declared by RFC-0002 but no RFC in this repository says "
-            f"which state it moves a job to — the engine will not guess a destination. "
-            f"Settling that is an RFC (see states.DECISION_TARGET), not a code change."
+            f"{decision} is a declared decision type with no entry in "
+            f"states.DECISION_TARGET, so no RFC in this repository says which state "
+            f"it moves a job to — the engine will not guess a destination. A new "
+            f"decision type needs the edge and the destination declared together."
         )
 
 

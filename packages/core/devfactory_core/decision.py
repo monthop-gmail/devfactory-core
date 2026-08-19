@@ -51,9 +51,10 @@ class DecisionType(str, Enum):
     observe.
 
     All three values are declared because the set is closed: declaring two of
-    three would quietly narrow the contract this repository publishes. Declaring
-    ``REQUIRE_CHANGES`` is not the same as being able to execute it — see
-    ``states.DECISION_TARGET`` for why the engine refuses it.
+    three would quietly narrow the contract this repository publishes. All three
+    are also executable since RFC-0011 gave ``REQUIRE_CHANGES`` a destination —
+    see ``states.DECISION_TARGET``, which is also where the reason a
+    ``REQUIRE_CHANGES`` stays distinguishable from a ``REJECT`` is written down.
 
     ``str`` mixin so a decision serialises as its own name.
     """

@@ -10,6 +10,8 @@ The six checks map one-to-one onto the issue's list::
 
     [1] the full flow, DRAFT → … → COMPLETED
     [2] rejection, revision, resubmission
+   [2b] being sent back for changes — the same destination by a different route,
+        which is what RFC-0011 rests on and so is checked rather than asserted
     [3] failure, from every state RFC-0010 allows and from nowhere else
     [4] the governance gate — no execution without an APPROVE *record*
     [5] every transition leaves an audit event
@@ -51,7 +53,12 @@ from devfactory_core.errors import (  # noqa: E402
     InvalidTransition,
     JobStateMachineError,
 )
-from devfactory_core.states import FAILABLE, POST_APPROVAL, TERMINAL  # noqa: E402
+from devfactory_core.states import (  # noqa: E402
+    DECISION_BY_EDGE,
+    FAILABLE,
+    POST_APPROVAL,
+    TERMINAL,
+)
 from devfactory_observability import (  # noqa: E402
     BrokenTrail,
     EventLog,
@@ -69,6 +76,7 @@ from simulation.flows import (  # noqa: E402
     job_factory,
     never_approved,
     rejected_then_resubmitted,
+    require_changes_then_resubmitted,
     stalled_awaiting_approval,
 )
 
@@ -220,6 +228,79 @@ def check_rejection_flow(new, reviewer) -> Job:
         fail("reject", "งานที่ถูก REJECT ยังเดินเข้า TASK_PLANNING ได้")
     except InvalidTransition:
         ok("reject", "REJECT ล้าง approval ทิ้ง — งานที่ยื่นใหม่ยังทำงานไม่ได้จนกว่าจะอนุมัติอีกครั้ง")
+    return job
+
+
+# ---- [2b] sent back for changes ---------------------------------------------
+# RFC-0011. Not one of issue #7's six items — the flow did not exist when #7 was
+# written — but it belongs beside rejection, because the two end in the same place
+# and the whole question is whether they can still be told apart afterwards.
+
+
+def check_require_changes_flow(new, reviewer) -> Job:
+    job = require_changes_then_resubmitted(new, job_id="job-002d", authority=reviewer)
+    expected = (
+        "DRAFT",
+        "GOVERNANCE_ANALYSIS",
+        "DRAFT",
+        "GOVERNANCE_ANALYSIS",
+        "APPROVED",
+        "TASK_PLANNING",
+    )
+    check(
+        "changes",
+        visited(job) == expected,
+        f"job-002d เดิน {' → '.join(expected)}",
+        f"job-002d เดินได้ {visited(job)}",
+    )
+    check(
+        "changes",
+        [d.decision.value for d in job.decisions] == ["REQUIRE_CHANGES", "APPROVE"],
+        "ตีกลับให้แก้แล้วยื่นใหม่ ได้ decision ใบที่สอง ไม่ใช่การแก้ใบเดิม",
+        f"decision ที่บันทึกคือ {[d.decision.value for d in job.decisions]}",
+    )
+
+    # A REQUIRE_CHANGES leaves no approval behind, exactly as a REJECT does not.
+    sent_back = new("job-002e")
+    sent_back.submit_for_governance()
+    sent_back.require_changes(authority=reviewer, reason="needs a test plan")
+    if sent_back.approval is not None:
+        fail("changes", "REQUIRE_CHANGES ไม่ได้ล้าง approval — งานที่ยังไม่อนุมัติถือ approval อยู่")
+    else:
+        try:
+            sent_back.transition(JobState.TASK_PLANNING)
+            fail("changes", "งานที่ถูกตีกลับให้แก้ยังเดินเข้า TASK_PLANNING ได้")
+        except InvalidTransition:
+            ok("changes", "REQUIRE_CHANGES ไม่ใช่การอนุมัติ — งานยังทำงานไม่ได้จนกว่าจะได้ APPROVE")
+
+    # 🔑 The claim RFC-0011 rests on: same destination, different trail. Checked by
+    # replaying both from the log alone — if a reader who was not there can tell
+    # them apart, the invariant survived the shared destination.
+    rejected = rejected_then_resubmitted(new, job_id="job-002f", authority=reviewer)
+    by_replay = {
+        "require_changes": replay_job(job.events),
+        "reject": replay_job(rejected.events),
+    }
+    routes = {
+        name: tuple(s.value for s in seen.states_visited)
+        for name, seen in by_replay.items()
+    }
+    check(
+        "changes",
+        JobState.REJECTED not in by_replay["require_changes"].states_visited
+        and JobState.REJECTED in by_replay["reject"].states_visited
+        and routes["require_changes"] != routes["reject"],
+        "replay แยกสองเคสออกจากกันได้ — เส้นทางของ REQUIRE_CHANGES ไม่ผ่าน REJECTED "
+        "ส่วนของ REJECT ผ่าน",
+        f"replay แยกไม่ออก: {routes}",
+    )
+    check(
+        "changes",
+        [d for d in by_replay["require_changes"].decision_ids]
+        == [d.decision_id for d in job.decisions],
+        "decision ที่ replay ได้ตรงกับที่ engine บันทึกจริง รวมใบ REQUIRE_CHANGES",
+        "decision ที่ replay ได้ไม่ตรงกับของจริง",
+    )
     return job
 
 
@@ -422,16 +503,20 @@ def check_every_transition_is_audited(jobs, log) -> None:
         f"transition ที่ event หายไปหรือเนื้อหาไม่ตรง: {unlinked}",
     )
 
+    # Which transitions are decisions is read off states.py by *edge*: since
+    # RFC-0011 the destination alone no longer says, DRAFT being reachable both by
+    # a REQUIRE_CHANGES from the gate and by the revision step out of REJECTED.
     undecided = [
         job.job_id
         for job in jobs
-        if len([h for h in job.history if h.to_state in (JobState.APPROVED, JobState.REJECTED)])
+        if len([h for h in job.history if (h.from_state, h.to_state) in DECISION_BY_EDGE])
         != len([e for e in job.events if e.type_value == "GOVERNANCE_DECISION"])
     ]
     check(
         "audit",
         not undecided,
-        "ทุกครั้งที่เข้า APPROVED หรือ REJECTED มี GOVERNANCE_DECISION คู่กับ STATE_TRANSITION",
+        "ทุก edge ที่เป็นคำตัดสินมี GOVERNANCE_DECISION คู่กับ STATE_TRANSITION "
+        "และ edge ที่ไม่ใช่คำตัดสินไม่มี",
         f"job ที่เข้า state ตัดสินใจโดยไม่มี GOVERNANCE_DECISION: {undecided}",
     )
 
@@ -523,6 +608,9 @@ def simulate(log: EventLog) -> list[Job]:
     print("\n[2] flow ปฏิเสธ — REJECTED กลับ DRAFT แล้วยื่นใหม่")
     rejected = check_rejection_flow(new, reviewer)
 
+    print("\n[2b] flow ตีกลับให้แก้ — REQUIRE_CHANGES กลับ DRAFT ตรง ๆ (rfcs/0011)")
+    sent_back = check_require_changes_flow(new, reviewer)
+
     print("\n[3] flow ล้มเหลว — FAILED จาก state ที่ RFC-0010 อนุญาตเท่านั้น")
     failures = check_failure_flow(new, reviewer)
 
@@ -542,7 +630,7 @@ def simulate(log: EventLog) -> list[Job]:
         expires_at=datetime(2026, 8, 19, 8, tzinfo=timezone.utc),
     )
 
-    jobs = [happy, rejected, *failures, *gated, cancelled, stalled, expired]
+    jobs = [happy, rejected, sent_back, *failures, *gated, cancelled, stalled, expired]
     for job in jobs:
         log.extend(job.events)
     return jobs

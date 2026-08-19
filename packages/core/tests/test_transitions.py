@@ -7,7 +7,7 @@ import pytest
 from conftest import drive
 from devfactory_core import Job, JobState, Principal
 from devfactory_core.errors import InvalidTransition, JobStateMachineError, TerminalState
-from devfactory_core.states import TERMINAL, TRANSITIONS
+from devfactory_core.states import TERMINAL, TRANSITIONS, decision_for_edge
 
 
 def _fresh(alice: Principal, clock, name: str = "job-001") -> Job:
@@ -16,8 +16,15 @@ def _fresh(alice: Principal, clock, name: str = "job-001") -> Job:
     )
 
 
-def _args_for(target: JobState, authority: Principal) -> dict:
-    """The guard-required arguments for entering ``target``."""
+def _args_for(target: JobState, authority: Principal, source: JobState | None = None) -> dict:
+    """The guard-required arguments for entering ``target`` from ``source``.
+
+    ``source`` matters since RFC-0011: ``GOVERNANCE_ANALYSIS -> DRAFT`` is a
+    ``REQUIRE_CHANGES`` and needs an authority and a reason, while
+    ``REJECTED -> DRAFT`` is the ordinary revision step and needs neither.
+    """
+    if source is not None and decision_for_edge(source, target) is not None:
+        return {"reason": "decided", "principal": authority}
     if target in (JobState.APPROVED, JobState.REJECTED):
         return {"reason": "decided", "principal": authority}
     if target is JobState.CANCELLED:
@@ -45,7 +52,7 @@ def test_drive_reaches_every_state(state, alice, clock):
 def test_every_static_edge_is_walkable(source, target, alice, clock):
     job = drive(_fresh(alice, clock), source, alice)
     assert job.state is source
-    job.transition(target, **_args_for(target, alice))
+    job.transition(target, **_args_for(target, alice, source))
     assert job.state is target
 
 

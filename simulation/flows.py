@@ -44,9 +44,14 @@ class JobFactory(Protocol):
 #:   and most offer ``TIMED_OUT`` or ``FAILED``
 #: * ``REJECTED`` — a verdict, and the flow that follows it is its own
 #: * ``AWAITING_APPROVAL`` — a pause inside the path, not a step along it
+#: * ``DRAFT`` — since RFC-0011 the gate can send a job back there for changes.
+#:   That is a return to the start, which is the opposite of progress; the flow it
+#:   begins is its own, exactly as ``REJECTED``'s is. ``DRAFT`` is never a forward
+#:   target from anywhere, so excluding it cannot hide a step.
 _NOT_FORWARD: frozenset[JobState] = (TERMINAL - {JobState.COMPLETED}) | {
     JobState.REJECTED,
     JobState.AWAITING_APPROVAL,
+    JobState.DRAFT,
 }
 
 
@@ -144,6 +149,30 @@ def rejected_then_resubmitted(
     job.transition(JobState.DRAFT)
     job.submit_for_governance(reason="risk analysis added")
     job.approve(authority=authority, reason="the gap raised in review is addressed")
+    job.transition(JobState.TASK_PLANNING)
+    return job
+
+
+def require_changes_then_resubmitted(
+    new: JobFactory, *, job_id: str, authority: Principal
+) -> Job:
+    """Sent back for changes, revised, resubmitted, approved — RFC-0011.
+
+    The counterpart to :func:`rejected_then_resubmitted`, and the reason both are
+    written down: they end in the same place and their trails are not the same
+    trail. This one goes ``GOVERNANCE_ANALYSIS -> DRAFT`` in a single step and
+    ``REJECTED`` never appears in its history, which is what keeps *"REQUIRE_CHANGES
+    ไม่ใช่ REJECT"* true of the record and not only of the wording.
+
+    It carries on into ``TASK_PLANNING`` for the same reason the rejection flow
+    does: a ``REQUIRE_CHANGES`` clears the approval, so reaching execution proves
+    the *second* decision restored authority the first one withheld.
+    """
+    job = new(job_id)
+    job.submit_for_governance(reason="first submission")
+    job.require_changes(authority=authority, reason="add a test plan and resubmit")
+    job.submit_for_governance(reason="test plan added")
+    job.approve(authority=authority, reason="the changes asked for are in")
     job.transition(JobState.TASK_PLANNING)
     return job
 

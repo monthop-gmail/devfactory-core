@@ -27,13 +27,24 @@ nobody is watching. Exit code is non-zero if any check fails.
 | --- | --- | --- |
 | 1 | the full flow, `DRAFT → … → COMPLETED` | `check_full_flow` |
 | 2 | `REJECTED → DRAFT`, then resubmitted | `check_rejection_flow` |
+| 2b | `REQUIRE_CHANGES → DRAFT`, and a replay that separates it from 2 | `check_require_changes_flow` |
 | 3 | `FAILED` with a reason, from a state `FAILABLE` allows | `check_failure_flow` |
 | 4 | the governance gate blocks execution without an `APPROVE` | `check_governance_gate` |
 | 5 | every transition emits an audit event | `check_every_transition_is_audited` |
 | 6 | the log is complete and replays to the same state | `check_replay` |
 | 7 | a runnable script or a test suite | this directory — both |
 
-One flow arrived after issue #7 was written: `approval_expired` drives a job whose
+Two flows arrived after issue #7 was written.
+
+`require_changes_then_resubmitted` drives a job the gate sends back for changes
+([RFC-0011](../rfcs/0011-require-changes-destination.md)). It is in the run for a
+specific reason: it ends in the same state as the rejection flow, and check `[2b]`
+replays both to prove they are still distinguishable from the log alone — the
+`REQUIRE_CHANGES` trail never passes through `REJECTED` and the rejection's does.
+That is the claim RFC-0011 rests on, so it is checked here rather than asserted in
+the RFC.
+
+`approval_expired` drives a job whose
 `APPROVE` lapsed where it sat, which settles at `TIMED_OUT` rather than at a
 failure. It is in the run so the trail checks 5 and 6 work on covers the
 `APPROVED → TIMED_OUT` edge and an approval carrying `expires_at`
@@ -50,7 +61,10 @@ is expressed. A simulation that wrote `APPROVED → TASK_PLANNING` into itself i
 order to walk it would be a second declaration with the first one's authority, so
 `flows.main_line()` *derives* the path instead: at each state, discard the exits
 available from nearly everywhere — `CANCELLED`, `TIMED_OUT`, `FAILED`, `REJECTED`,
-and the `AWAITING_APPROVAL` pause — and one successor is left.
+the `AWAITING_APPROVAL` pause, and `DRAFT`, which since RFC-0011 the gate can send
+a job back to — and one successor is left. A return to the start is not progress;
+if the path ever genuinely forks, `main_line()` raises rather than picking a branch,
+because a fork is a lifecycle change and belongs in an RFC first.
 
 The flow issue #7 spells out appears exactly once, as the thing that derivation is
 compared *against*. If the table and the issue ever disagree, the comparison fails

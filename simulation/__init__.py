@@ -19,6 +19,7 @@ from .flows import (
     main_line,
     never_approved,
     rejected_then_resubmitted,
+    require_changes_then_resubmitted,
     stalled_awaiting_approval,
 )
 
@@ -33,5 +34,6 @@ __all__ = [
     "main_line",
     "never_approved",
     "rejected_then_resubmitted",
+    "require_changes_then_resubmitted",
     "stalled_awaiting_approval",
 ]

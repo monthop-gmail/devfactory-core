@@ -17,8 +17,9 @@ traces in an audit record.
 
 The governance decisions those jobs produced are validated the same way against
 ``approval/v1``, together with the guarantees RFC-0002 owns: every APPROVE leaves
-a record, and ``REQUIRE_CHANGES`` is refused rather than given a destination
-nobody has decided on yet.
+a record, and a ``REQUIRE_CHANGES`` sends the job back to ``DRAFT`` without its
+trail ever passing through ``REJECTED`` — RFC-0011, which is what keeps
+*"REQUIRE_CHANGES ไม่ใช่ REJECT"* true of the record and not only of the wording.
 
 Usage::
 
@@ -137,10 +138,10 @@ def build_validator(schemas: dict[str, dict], target_id: str, non_schema_keys: l
 def run_scenario():
     """Drive real jobs through the real engine and return the log plus what happened.
 
-    Seven jobs across two tenants, covering every terminal state, the mid-run
-    approval pause, rejection and resubmission, recovery by supersession, and an
-    approval that expired where it sat — plus two inbound external events that no
-    job caused.
+    Eight jobs across two tenants, covering every terminal state, the mid-run
+    approval pause, rejection and resubmission, being sent back for changes,
+    recovery by supersession, and an approval that expired where it sat — plus two
+    inbound external events that no job caused.
 
     The journeys themselves are ``simulation/flows.py``, which issue #7 made the
     one place they are written down. Two files describing the same lifecycle
@@ -158,6 +159,7 @@ def run_scenario():
         happy_path,
         job_factory,
         rejected_then_resubmitted,
+        require_changes_then_resubmitted,
         stalled_awaiting_approval,
     )
 
@@ -200,7 +202,15 @@ def run_scenario():
         expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
     )
 
-    jobs = [happy, revised, failed, replacement, cancelled, stalled, expired]
+    # 7. sent back for changes, revised, resubmitted, approved — RFC-0011. The only
+    #    flow that produces an approval/v1 payload carrying decision=REQUIRE_CHANGES,
+    #    so the third value of a closed vocabulary is validated as something the
+    #    engine really emitted rather than asserted about in the abstract.
+    sent_back = require_changes_then_resubmitted(
+        acme, job_id="job-011", authority=reviewer
+    )
+
+    jobs = [happy, revised, failed, replacement, cancelled, stalled, expired, sent_back]
     for job in jobs:
         log.extend(job.events)
 
@@ -344,10 +354,10 @@ def check_decisions(log, jobs, validator) -> None:
         )
     check_expiry_enforced()
 
-    # REQUIRE_CHANGES อยู่ใน vocabulary แต่ยังไม่มี RFC กำหนดว่ามันพา job ไปไหน
-    # engine ต้องปฏิเสธ ไม่ใช่เดาปลายทาง — ดู states.DECISION_TARGET
-    from devfactory_core import DecisionType, Job, Principal
-    from devfactory_core.errors import UnmappedDecision
+    # REQUIRE_CHANGES มีปลายทางแล้วตาม rfcs/0011 — DRAFT ตรงจากประตู
+    # เดิมเช็คนี้ยืนยันว่า engine ปฏิเสธค่านี้ ตอนนี้กลับด้านเป็นยืนยันว่ามันทำงานถูก
+    # ดู states.DECISION_TARGET
+    from devfactory_core import DecisionType, Job, JobState, Principal
 
     probe = Job(
         job_id="job-007",
@@ -356,15 +366,27 @@ def check_decisions(log, jobs, validator) -> None:
         principal=Principal("human", "alice"),
     )
     probe.submit_for_governance()
-    try:
-        probe.decide(
-            DecisionType.REQUIRE_CHANGES,
-            authority=Principal("human", "bob"),
-            reason="needs a test plan",
+    probe.decide(
+        DecisionType.REQUIRE_CHANGES,
+        authority=Principal("human", "bob"),
+        reason="needs a test plan",
+    )
+    if probe.state is JobState.DRAFT and probe.approval is None:
+        ok("approval", "REQUIRE_CHANGES พา job กลับไป DRAFT และไม่เหลือ approval ค้างไว้ (rfcs/0011)")
+    else:
+        fail(
+            "approval",
+            f"REQUIRE_CHANGES พา job ไปจบที่ {probe.state.value} "
+            f"(approval={probe.approval is not None}) — ต้องเป็น DRAFT และไม่มี approval",
         )
-        fail("approval", "REQUIRE_CHANGES ถูกรับเข้า — ต้องปฏิเสธจนกว่าจะมี RFC กำหนดปลายทาง")
-    except UnmappedDecision:
-        ok("approval", "REQUIRE_CHANGES ถูกปฏิเสธ — ยังไม่มี RFC กำหนดปลายทางของมัน")
+
+    # "REQUIRE_CHANGES ไม่ใช่ REJECT" — ปลายทางเดียวกันกับ REJECT แต่คนละเส้นทาง
+    # เส้นทางอยู่ใน trail จริง ไม่ใช่แค่ใน decision record จึงตรวจที่ history
+    visited = [h.to_state.value for h in probe.history]
+    if visited == ["GOVERNANCE_ANALYSIS", "DRAFT"]:
+        ok("approval", "REQUIRE_CHANGES ข้าม REJECTED — trail แยกออกจากการถูกปฏิเสธ")
+    else:
+        fail("approval", f"เส้นทางของ REQUIRE_CHANGES คือ {visited} — คาดว่าต้องข้าม REJECTED")
 
 
 def check_expiry_enforced() -> None:

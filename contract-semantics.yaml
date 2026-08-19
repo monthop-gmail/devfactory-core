@@ -107,6 +107,7 @@ contracts:
       note: >-
         packages/core ทำ decision interface ครบตาม RFC-0002 แล้ว (issue #5)
         vocabulary ยังมีครบ 3 ค่าตามชุดปิด — ห้ามลบค่าใดออกจาก contract
+        · ตั้งแต่ rfcs/0011 ทั้งสามค่ามีปลายทางแล้ว engine ไม่ปฏิเสธค่าใดอีก
       enforced_optional_fields:
         # field ที่ agent-platform เพิ่มเองได้ (platform_may_add_freely ด้านล่าง)
         # แต่ตัว schema เขียนความหมายไว้แล้ว — repo นี้จึงบังคับตามความหมายนั้น
@@ -121,14 +122,28 @@ contracts:
           optional: >-
             ยัง optional เหมือนใน schema — approval ที่ไม่มี expires_at คือไม่มีวันหมดอายุ
             บังคับให้ต้องมีจะทำให้ engine เข้มกว่า contract ที่ conform อยู่ · issue #17
-      unmapped:
-        - decision: REQUIRE_CHANGES
-          detail: >-
-            engine ปฏิเสธด้วย UnmappedDecision เพราะยังไม่มี RFC ที่ repo นี้บอกว่า
-            job ที่ถูกตีกลับให้แก้ไปอยู่ state ไหน · REJECTED ผิด invariant
-            ("REQUIRE_CHANGES ไม่ใช่ REJECT") · DRAFT ต้องมี edge ใหม่ที่ยังไม่มี RFC ประกาศ
-            · state ที่ 14 คือการเปลี่ยน lifecycle · ดู states.DECISION_TARGET
-          means: ค่านี้ยังอยู่ใน contract — สิ่งที่ขาดคือปลายทาง ไม่ใช่ตัวค่า
+      decision_targets:
+        # ครบทั้งสามค่าแล้วตั้งแต่ rfcs/0011 — เดิม REQUIRE_CHANGES ไม่มีปลายทาง
+        # และ engine ปฏิเสธด้วย UnmappedDecision
+        APPROVE: APPROVED
+        REJECT: REJECTED
+        REQUIRE_CHANGES: DRAFT
+      require_changes:
+        detail: >-
+          rfcs/0011 กำหนดให้ REQUIRE_CHANGES พา job กลับไป DRAFT ผ่าน edge ใหม่
+          GOVERNANCE_ANALYSIS → DRAFT · ไม่เพิ่ม state และไม่เพิ่มค่าใน vocabulary
+          · approval ถูกล้างเหมือน REJECT เพราะการถูกสั่งให้แก้ไม่ใช่การได้รับอนุมัติ
+        how_it_stays_distinct_from_reject: >-
+          ปลายทางเดียวกันแต่คนละเส้นทาง และเส้นทางอยู่ใน trail จริง:
+          REJECT เดิน GOVERNANCE_ANALYSIS → REJECTED → DRAFT (state REJECTED ค้างใน
+          history ตลอดไป) ส่วน REQUIRE_CHANGES เดิน GOVERNANCE_ANALYSIS → DRAFT ตรง ๆ
+          ข้าม REJECTED · คนที่อ่านย้อนจาก log อย่างเดียวจึงแยกออกได้ ไม่ต้องเชื่อ
+          decision record อย่างเดียว · invariant "REQUIRE_CHANGES ไม่ใช่ REJECT"
+          จึงถูกบังคับด้วยรูปร่างของ trail ไม่ใช่ด้วยคำอธิบาย
+        note_for_consumers: >-
+          ผลที่ตามมา: "transition นี้เป็นคำตัดสินหรือไม่" ต้องดูที่ edge ไม่ใช่ที่ปลายทาง
+          — GOVERNANCE_ANALYSIS → DRAFT เป็นคำตัดสิน ส่วน REJECTED → DRAFT ไม่ใช่
+          (เป็นแค่ขั้นแก้ไขหลังคำตัดสินที่บันทึกไปแล้ว) · ดู states.DECISION_BY_EDGE
 
     platform_may_add_freely:
       # เพิ่มได้ผ่าน ADR ฝั่ง agent-platform อย่างเดียว ไม่ต้องมี RFC ที่นี่ (Rule 1)
@@ -200,6 +215,7 @@ not_derived:
       - rfcs/0001-job-state-machine.md
       - rfcs/0007-job-lifecycle-completeness.md   # amend 0001
       - rfcs/0010-failable-states.md              # ระบุว่า state ไหนไป FAILED ได้
+      - rfcs/0011-require-changes-destination.md  # เพิ่ม edge GOVERNANCE_ANALYSIS → DRAFT
     note: >-
       ให้ vocabulary ไว้เพื่อให้ execution/v1 อ้างความหมายของ job state ได้
       โดยไม่ต้องคาดเดา — คำเตือน external-authority-pending ใน execution.schema.yaml
@@ -224,7 +240,9 @@ not_derived:
     # ไม่ลง state ที่อยู่ใน terminal เพราะไม่มี edge ออก — ดู terminal ด้านบน
     progression:
       DRAFT: [GOVERNANCE_ANALYSIS]
-      GOVERNANCE_ANALYSIS: [APPROVED, REJECTED]
+      # rfcs/0011 เพิ่ม DRAFT — ประตูมีสามคำตัดสิน จึงมีทางออกสามทาง ทางละคำตัดสิน
+      # GOVERNANCE_ANALYSIS → DRAFT คือ REQUIRE_CHANGES · ไม่ผ่าน REJECTED โดยเจตนา
+      GOVERNANCE_ANALYSIS: [APPROVED, REJECTED, DRAFT]
       APPROVED: [TASK_PLANNING]
       REJECTED: [DRAFT]
       TASK_PLANNING: [IN_PROGRESS]
@@ -264,6 +282,8 @@ not_derived:
       - FAILED · CANCELLED · TIMED_OUT ต้องมี reason metadata
       - job ที่ยังไม่ผ่าน APPROVED เข้า FAILED ไม่ได้ — recovery ด้วย supersedes_job_id จะไม่มีอะไรให้ supersede (rfcs/0010)
       - approval ที่เลย expires_at แล้วใช้เดินงานต่อไม่ได้ — engine ปฏิเสธ ไม่ใช่ปล่อยผ่าน · job ที่ค้างอยู่เข้า TIMED_OUT ได้ (rfcs/0007 Amendment 1)
+      - REQUIRE_CHANGES กับ REJECT จบที่ DRAFT เหมือนกันแต่คนละเส้นทาง — REJECT ผ่าน REJECTED ส่วน REQUIRE_CHANGES ข้าม · แยกกันที่ trail ไม่ใช่แค่ที่ decision record (rfcs/0011)
+      - คำถามว่า transition นี้เป็นคำตัดสินไหม ต้องอ่านที่ edge ไม่ใช่ที่ปลายทาง — REJECTED → DRAFT ไม่ใช่คำตัดสิน (rfcs/0011)
     layering: job (ที่นี่) > execution (execution/v1) > step (event/)
 
   orchestration_execution_boundary:

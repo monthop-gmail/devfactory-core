@@ -6,12 +6,15 @@ import pytest
 
 from devfactory_core.states import (
     APPROVAL_PAUSABLE,
+    DECISION_GATE,
+    DECISION_TARGET,
     FAILABLE,
     POST_APPROVAL,
     TERMINAL,
     TIMEOUTABLE,
     TRANSITIONS,
     JobState,
+    decision_for_edge,
     is_terminal,
     static_targets,
 )
@@ -101,6 +104,44 @@ def test_failed_reachable_only_where_work_exists(state):
 def test_failed_not_reachable_before_execution(state):
     """Before APPROVED nothing runs, so REJECTED, CANCELLED, or TIMED_OUT apply."""
     assert JobState.FAILED not in static_targets(state)
+
+
+def test_the_gate_has_one_way_out_per_verdict():
+    """RFC-0011 added the third. Three decisions, three edges, no fourteenth state."""
+    assert set(DECISION_TARGET.values()) == {
+        JobState.APPROVED,
+        JobState.REJECTED,
+        JobState.DRAFT,
+    } <= set(static_targets(DECISION_GATE))
+    assert len(JobState) == 13
+
+
+def test_the_gate_can_send_a_job_back_for_changes():
+    """``REQUIRE_CHANGES`` needs an edge, and this is it — RFC-0011."""
+    assert JobState.DRAFT in static_targets(JobState.GOVERNANCE_ANALYSIS)
+    assert (
+        decision_for_edge(JobState.GOVERNANCE_ANALYSIS, JobState.DRAFT) is not None
+    )
+
+
+def test_the_two_ways_into_draft_are_not_the_same_kind_of_move():
+    """One is a verdict, one is the revision step that follows one.
+
+    Sharing a destination is what makes RFC-0011 workable and is also its only
+    hazard: anything reading the lifecycle has to key on the edge, or it will read
+    a resubmission as a decision nobody made.
+    """
+    entrances = {
+        source for source, targets in TRANSITIONS.items() if JobState.DRAFT in targets
+    }
+    assert entrances == {JobState.GOVERNANCE_ANALYSIS, JobState.REJECTED}
+    assert decision_for_edge(JobState.REJECTED, JobState.DRAFT) is None
+
+
+def test_the_new_edge_does_not_open_a_way_into_execution():
+    """RFC-0011 must not weaken the direction lock — DRAFT is the far side of it."""
+    assert JobState.DRAFT not in POST_APPROVAL
+    assert static_targets(JobState.DRAFT) & POST_APPROVAL == frozenset()
 
 
 def test_approved_is_the_only_gate_into_execution():

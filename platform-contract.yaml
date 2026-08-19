@@ -95,8 +95,6 @@ remaining:
   - เปิด branch protection แล้วตั้ง check ของ workflow test เป็น required
     เพื่อให้ release gate บล็อกการ merge ได้จริง (ADR-0006 ข้อ 3)
   - end-to-end simulation (issue #7)
-  - RFC กำหนดปลายทางของ REQUIRE_CHANGES — vocabulary มีครบ 3 ค่าแล้ว
-    แต่ engine ปฏิเสธค่านี้อยู่ (UnmappedDecision) เพราะยังไม่มี RFC บอกว่า job ไปไหนต่อ
 
 registration: conforming   # registered | conforming
 

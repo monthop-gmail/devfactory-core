@@ -250,10 +250,47 @@ def test_execution_with_no_approve_behind_it_is_refused(make_job, reviewer, monk
 
     job = approved(make_job(), reviewer)
     job.transition(JobState.TASK_PLANNING)
-    monkeypatch.setattr(replay_module, "DECISION_BY_TARGET", {})
+    monkeypatch.setattr(replay_module, "DECISION_BY_EDGE", {})
     with pytest.raises(UnauditedExecution) as excinfo:
         replay_job(job.events)
     assert excinfo.value.state == "TASK_PLANNING"
+
+
+def test_a_require_changes_replays_as_a_decision_that_cleared_the_approval(
+    make_job, reviewer
+):
+    """RFC-0011, read back: the verdict is in the trail and so is its effect."""
+    job = approved(make_job(), reviewer)
+    job.transition(JobState.TASK_PLANNING)
+    job.fail(reason="the approved plan does not work")
+    revised = job.supersede(job_id="job-001b")
+    revised.submit_for_governance(reason="revised plan")
+    revised.require_changes(authority=reviewer, reason="still needs a test plan")
+
+    seen = replay_job(revised.events)
+    assert seen.state is JobState.DRAFT
+    assert seen.decision_ids == (revised.decisions[0].decision_id,)
+    assert seen.history[-1].decision_id == revised.decisions[0].decision_id
+    assert seen.approval_decision_id is None
+
+
+def test_the_revision_step_out_of_rejected_is_not_read_as_a_decision(
+    make_job, reviewer
+):
+    """``REJECTED -> DRAFT`` and ``GOVERNANCE_ANALYSIS -> DRAFT`` share a
+    destination and are different moves. Reading by destination would demand a
+    ``GOVERNANCE_DECISION`` here for a verdict nobody made, and refuse a trail that
+    is entirely correct.
+    """
+    job = make_job()
+    job.submit_for_governance(reason="ready")
+    job.reject(authority=reviewer, reason="out of scope")
+    job.transition(JobState.DRAFT)
+
+    seen = replay_job(job.events)
+    assert seen.state is JobState.DRAFT
+    assert len(seen.decision_ids) == 1
+    assert seen.history[-1].decision_id is None
 
 
 def test_a_completion_the_transitions_do_not_reach_is_refused(make_job):

@@ -1,10 +1,10 @@
 """Job lifecycle states and the transition table.
 
-Canonical spec: ``packages/core/state-machine.md`` — RFC-0001 as amended by RFC-0007.
-This module is the single place the transition table is expressed in code; nothing
-else may hard-code an edge. ``DECISION_TARGET`` lives here for the same reason:
-where a governance decision (RFC-0002) sends a job has to be checked against the
-table, not asserted separately from it.
+Canonical spec: ``packages/core/state-machine.md`` — RFC-0001 as amended by
+RFC-0007 and RFC-0011. This module is the single place the transition table is
+expressed in code; nothing else may hard-code an edge. ``DECISION_TARGET`` lives
+here for the same reason: where a governance decision (RFC-0002) sends a job has
+to be checked against the table, not asserted separately from it.
 """
 
 from __future__ import annotations
@@ -96,7 +96,13 @@ FAILABLE: frozenset[JobState] = frozenset(
 # The lifecycle proper, before the cross-cutting exits are folded in.
 _PROGRESSION: dict[JobState, frozenset[JobState]] = {
     JobState.DRAFT: frozenset({JobState.GOVERNANCE_ANALYSIS}),
-    JobState.GOVERNANCE_ANALYSIS: frozenset({JobState.APPROVED, JobState.REJECTED}),
+    # RFC-0011 added ``DRAFT``: it is where ``REQUIRE_CHANGES`` sends a job. The
+    # gate has three verdicts and now three ways out, one per verdict. Returning
+    # here without passing REJECTED is the whole point — the trail has to be able
+    # to say "sent back for changes" without saying "rejected".
+    JobState.GOVERNANCE_ANALYSIS: frozenset(
+        {JobState.APPROVED, JobState.REJECTED, JobState.DRAFT}
+    ),
     JobState.APPROVED: frozenset({JobState.TASK_PLANNING}),
     JobState.REJECTED: frozenset({JobState.DRAFT}),
     JobState.TASK_PLANNING: frozenset({JobState.IN_PROGRESS}),
@@ -135,53 +141,62 @@ def _build() -> dict[JobState, frozenset[JobState]]:
 TRANSITIONS: dict[JobState, frozenset[JobState]] = _build()
 
 
+#: The one state a governance decision is made in. RFC-0002: a decision is what
+#: moves a job *out of the gate*, so every edge below leaves from here.
+DECISION_GATE: JobState = JobState.GOVERNANCE_ANALYSIS
+
 #: Where a governance decision sends a job — RFC-0002 meeting RFC-0001.
 #:
+#: All three of RFC-0002's decisions have a destination. ``REQUIRE_CHANGES`` got
+#: its own in RFC-0011: ``DRAFT``, reached straight from the gate.
+#:
 #: Every destination here is an edge ``_PROGRESSION`` already declares out of
-#: ``GOVERNANCE_ANALYSIS``. A decision may not invent a transition: if a decision
-#: needs a new edge, that edge is a lifecycle change and belongs in an RFC first
+#: ``DECISION_GATE``. A decision may not invent a transition: if a decision needs
+#: a new edge, that edge is a lifecycle change and belongs in an RFC first
 #: (``docs/governance/CORE_BOUNDARY.md``). ``test_decisions.py`` asserts this
 #: containment so the rule cannot quietly lapse.
 #:
-#: ``REQUIRE_CHANGES`` is deliberately absent, and its absence is the decision,
-#: not an oversight:
+#: ``REJECT`` and ``REQUIRE_CHANGES`` both leave the job revisable in ``DRAFT``,
+#: which is what ``approval/v1`` requires of the second — *"REQUIRE_CHANGES ไม่ใช่
+#: REJECT — งานยังมีชีวิตและกลับมายื่นใหม่ได้"*. They stay distinguishable because
+#: they take **different routes there**, and the route is in the trail:
 #:
-#: * RFC-0002 declares it and ``contract-semantics.yaml`` marks the vocabulary a
-#:   closed set, so :class:`~devfactory_core.decision.DecisionType` must carry all
-#:   three values. Dropping it would narrow the contract we publish.
-#: * ``approval/v1`` says what it *means* — "REQUIRE_CHANGES ไม่ใช่ REJECT — งานยัง
-#:   มีชีวิตและกลับมายื่นใหม่ได้" — but nothing in this repository says which state
-#:   the job lands in, and that is the part the engine would need.
+#: * ``REJECT`` — ``GOVERNANCE_ANALYSIS -> REJECTED -> DRAFT``, two transitions,
+#:   with ``REJECTED`` standing in the job's history forever.
+#: * ``REQUIRE_CHANGES`` — ``GOVERNANCE_ANALYSIS -> DRAFT``, one transition, and
+#:   ``REJECTED`` never appears.
 #:
-#: Each candidate destination needs something that does not exist yet:
-#:
-#: * ``REJECTED`` — forbidden outright by the invariant above: it is not a REJECT,
-#:   and recording it as one would make the audit trail say the wrong thing.
-#: * ``DRAFT`` — needs a ``GOVERNANCE_ANALYSIS -> DRAFT`` edge that neither
-#:   RFC-0001 nor RFC-0007 declares, and it would erase the difference from the
-#:   ``REJECTED -> DRAFT`` path, which is exactly the distinction the invariant
-#:   asks us to keep.
-#: * a fourteenth state (``CHANGES_REQUESTED``) — a new state, which is a
-#:   lifecycle change and needs an RFC.
-#:
-#: So :meth:`~devfactory_core.job.Job.decide` raises ``UnmappedDecision`` for it.
-#: Guessing would be the one failure mode governance cannot afford: an audit
-#: record whose meaning is not the meaning that was decided. When an RFC settles
-#: the destination, the fix is one entry in this dict plus whatever edge that RFC
-#: declares — deliberately a small change, sitting behind a decision only a human
-#: can make.
+#: So a reader with only the ``STATE_TRANSITION`` records can tell the two apart
+#: without consulting the decision, and a reader with the decisions can tell them
+#: apart without consulting the states. Neither half is load-bearing alone, which
+#: is why the invariant survives the shared destination. See RFC-0011.
 DECISION_TARGET: dict[DecisionType, JobState] = {
     DecisionType.APPROVE: JobState.APPROVED,
     DecisionType.REJECT: JobState.REJECTED,
+    DecisionType.REQUIRE_CHANGES: JobState.DRAFT,
 }
 
-#: The inverse. Entering ``APPROVED`` or ``REJECTED`` through the generic
-#: ``transition()`` still has to produce a decision record — "every APPROVE is
-#: auditable" is a guarantee about the state, not about which method was called —
-#: and this is how that path names the decision it must have been.
-DECISION_BY_TARGET: dict[JobState, DecisionType] = {
-    target: decision for decision, target in DECISION_TARGET.items()
+#: The inverse, keyed by the **edge** rather than by the destination.
+#:
+#: Entering a decision state through the generic ``transition()`` still has to
+#: produce a decision record — "every APPROVE is auditable" is a guarantee about
+#: the state, not about which method was called — and this is how that path names
+#: the decision it must have been.
+#:
+#: It has to be keyed by the edge since RFC-0011, because ``DRAFT`` is now
+#: reachable two ways and only one of them is a decision: ``GOVERNANCE_ANALYSIS ->
+#: DRAFT`` is a ``REQUIRE_CHANGES``, while ``REJECTED -> DRAFT`` is the revision
+#: step that follows a rejection already recorded. Keying this by destination
+#: alone would demand a decision record for the second, and would let a replay
+#: read a resubmission as a verdict nobody made.
+DECISION_BY_EDGE: dict[tuple[JobState, JobState], DecisionType] = {
+    (DECISION_GATE, target): decision for decision, target in DECISION_TARGET.items()
 }
+
+
+def decision_for_edge(from_state: JobState, to_state: JobState) -> DecisionType | None:
+    """The decision this edge *is*, or ``None`` if the edge is not a decision."""
+    return DECISION_BY_EDGE.get((from_state, to_state))
 
 
 def static_targets(state: JobState) -> frozenset[JobState]:

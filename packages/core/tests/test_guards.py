@@ -106,14 +106,43 @@ def test_cancel_records_who_cancelled(alice, clock):
     assert job.history[-1].principal is alice
 
 
-@pytest.mark.parametrize("target", [JobState.APPROVED, JobState.REJECTED], ids=lambda s: s.value)
+@pytest.mark.parametrize(
+    "target",
+    [JobState.APPROVED, JobState.REJECTED, JobState.DRAFT],
+    ids=lambda s: s.value,
+)
 def test_decisions_require_an_authority_and_a_reason(target, alice, clock):
+    """All three verdicts, including RFC-0011's ``GOVERNANCE_ANALYSIS -> DRAFT``."""
     job = drive(_fresh(alice, clock), JobState.GOVERNANCE_ANALYSIS, alice)
     with pytest.raises(MissingAuthority):
         job.transition(target, reason="because")
     with pytest.raises(MissingAuthority):
         job.transition(target, principal=alice)
     assert job.state is JobState.GOVERNANCE_ANALYSIS
+
+
+def test_the_revision_step_after_a_rejection_needs_no_authority(alice, clock):
+    """Same destination as a ``REQUIRE_CHANGES``, and not a decision.
+
+    The guard keys on the edge for exactly this reason: requiring an authority here
+    would demand a second verdict for a rejection already recorded.
+    """
+    job = drive(_fresh(alice, clock), JobState.REJECTED, alice)
+    job.transition(JobState.DRAFT)
+    assert job.state is JobState.DRAFT
+    assert job.history[-1].decision_id is None
+
+
+def test_entering_draft_from_the_gate_records_the_decision_it_must_have_been(
+    alice, clock
+):
+    """The generic call mints the same record ``require_changes()`` would."""
+    job = drive(_fresh(alice, clock), JobState.GOVERNANCE_ANALYSIS, alice)
+    job.transition(JobState.DRAFT, reason="add a test plan", principal=alice)
+    assert job.state is JobState.DRAFT
+    assert job.decisions[-1].decision.value == "REQUIRE_CHANGES"
+    assert job.events[-2].type_value == "GOVERNANCE_DECISION"
+    assert job.approval is None
 
 
 # ---- the direction lock ----------------------------------------------------

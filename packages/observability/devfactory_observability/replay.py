@@ -46,7 +46,7 @@ from typing import TYPE_CHECKING, Any, Iterable
 from devfactory_core.decision import DecisionType
 from devfactory_core.events import INTERNAL_SOURCE, Event, EventType
 from devfactory_core.states import (
-    DECISION_BY_TARGET,
+    DECISION_BY_EDGE,
     POST_APPROVAL,
     TERMINAL,
     JobState,
@@ -222,14 +222,20 @@ def replay_job(events: Iterable[Event]) -> ReplayedJob:
                 job_id, from_state.value, to_state.value, event.event_id
             )
 
-        decision_id = _settle_decision(job_id, to_state, pending, event.event_id)
+        # Whether this edge is a decision, read off ``states.py`` by edge rather
+        # than by destination — RFC-0011 gave DRAFT two ways in and only the one
+        # from the gate is a verdict.
+        decided = DECISION_BY_EDGE.get((state, to_state))
+        decision_id = _settle_decision(job_id, decided, to_state, pending, event.event_id)
         settled = pending if decision_id is not None else None
         if decision_id is not None:
             pending = None
-        if to_state is JobState.APPROVED:
+        if decided is DecisionType.APPROVE:
             approval_decision_id = decision_id
             approval_expires_at = _expiry_of(settled)
-        elif to_state is JobState.REJECTED:
+        elif decided is not None:
+            # A REJECT or a REQUIRE_CHANGES: read back, neither leaves an approval
+            # in force, exactly as neither does in the engine.
             approval_decision_id = None
             approval_expires_at = None
 
@@ -289,16 +295,22 @@ def replay_job(events: Iterable[Event]) -> ReplayedJob:
 
 
 def _settle_decision(
-    job_id: str, to_state: JobState, pending: dict[str, Any] | None, event_id: str
+    job_id: str,
+    expected: DecisionType | None,
+    to_state: JobState,
+    pending: dict[str, Any] | None,
+    event_id: str,
 ) -> str | None:
     """The decision id behind this transition, or None if it needed no decision.
 
-    Which states are decisions is ``DECISION_BY_TARGET``, which lives in
+    Which *edges* are decisions is ``DECISION_BY_EDGE``, which lives in
     ``devfactory_core.states`` beside the table it has to agree with. Asking it
     rather than listing the decision states again is what stops this module from
-    acquiring an opinion of its own about what counts as a decision.
+    acquiring an opinion of its own about what counts as a decision — and since
+    RFC-0011 it is what keeps a resubmission out of ``REJECTED`` from being read
+    back as a verdict, ``REJECTED -> DRAFT`` and ``GOVERNANCE_ANALYSIS -> DRAFT``
+    having the same destination and different meanings.
     """
-    expected = DECISION_BY_TARGET.get(to_state)
     if expected is None:
         return None
     if pending is None:

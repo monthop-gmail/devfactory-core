@@ -10,6 +10,10 @@ Read the two together; RFC-0007 supersedes this document where they differ.
 **Further amended by [RFC-0010](0010-failable-states.md)** — enumerates which states may
 reach `FAILED`, which neither this document nor RFC-0007 stated.
 
+**Further amended by [RFC-0011](0011-require-changes-destination.md)** — adds the
+`GOVERNANCE_ANALYSIS → DRAFT` edge, which is where RFC-0002's `REQUIRE_CHANGES` sends a
+job. No new state; the gate now has one exit per verdict.
+
 ## Context
 devfactory-core is a governance-first control plane.
 A deterministic job lifecycle is required to ensure governance,
