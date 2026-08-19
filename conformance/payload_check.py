@@ -15,6 +15,11 @@ It also asserts the ``event/v1`` guarantees that JSON Schema cannot express —
 append-only, no silent state change, no fabricated identifiers, no reasoning
 traces in an audit record.
 
+The governance decisions those jobs produced are validated the same way against
+``approval/v1``, together with the guarantees RFC-0002 owns: every APPROVE leaves
+a record, and ``REQUIRE_CHANGES`` is refused rather than given a destination
+nobody has decided on yet.
+
 Usage::
 
     python3 conformance/payload_check.py            # fetch schemas, then validate
@@ -271,6 +276,74 @@ def check_payloads(log, validator, gaps: list[dict]) -> None:
         )
 
 
+def check_decisions(log, jobs, validator) -> None:
+    """RFC-0002 — the decisions this engine produced, judged by ``approval/v1``.
+
+    Same rule as the events above: nothing is hand-written to please the schema.
+    These are the records the real state machine wrote while the scenario ran.
+    """
+    decisions = [
+        payload
+        for tenant in log.tenants()
+        for payload in log.payloads(tenant)
+        if payload["event_type"] == "GOVERNANCE_DECISION"
+    ]
+    real = 0
+    for payload in decisions:
+        approval = (payload.get("metadata") or {}).get("approval")
+        if approval is None:
+            real += 1
+            fail(
+                "approval",
+                f"GOVERNANCE_DECISION {payload['event_id'][:8]} ไม่มี approval payload",
+            )
+            continue
+        for error in sorted(validator.iter_errors(approval), key=lambda e: list(e.path)):
+            real += 1
+            where = "/".join(str(part) for part in error.path) or "<root>"
+            fail(
+                "approval",
+                f"{approval.get('decision')} ({str(approval.get('approval_id'))[:8]}): "
+                f"{error.message} at {where}",
+            )
+    if real == 0:
+        ok("approval", f"{len(decisions)} decision ผ่าน approval/v1")
+
+    # "ทุก APPROVE ต้อง auditable — ต้องมี event GOVERNANCE_DECISION คู่กันเสมอ"
+    mismatched = [
+        job.job_id
+        for job in jobs
+        if len([h for h in job.history if h.to_state.value == "APPROVED"])
+        != len([d for d in job.decisions if d.decision.value == "APPROVE"])
+    ]
+    if mismatched:
+        fail("approval", f"เข้า APPROVED โดยไม่มี decision record: {mismatched}")
+    else:
+        ok("approval", "ทุก APPROVE มี decision record และ event คู่กับ STATE_TRANSITION")
+
+    # REQUIRE_CHANGES อยู่ใน vocabulary แต่ยังไม่มี RFC กำหนดว่ามันพา job ไปไหน
+    # engine ต้องปฏิเสธ ไม่ใช่เดาปลายทาง — ดู states.DECISION_TARGET
+    from devfactory_core import DecisionType, Job, Principal
+    from devfactory_core.errors import UnmappedDecision
+
+    probe = Job(
+        job_id="job-007",
+        tenant_id="acme",
+        workspace_id="ws-core",
+        principal=Principal("human", "alice"),
+    )
+    probe.submit_for_governance()
+    try:
+        probe.decide(
+            DecisionType.REQUIRE_CHANGES,
+            authority=Principal("human", "bob"),
+            reason="needs a test plan",
+        )
+        fail("approval", "REQUIRE_CHANGES ถูกรับเข้า — ต้องปฏิเสธจนกว่าจะมี RFC กำหนดปลายทาง")
+    except UnmappedDecision:
+        ok("approval", "REQUIRE_CHANGES ถูกปฏิเสธ — ยังไม่มี RFC กำหนดปลายทางของมัน")
+
+
 def check_gap_expiry(gaps: list[dict], today: str) -> None:
     """A waiver with no end date is a permanent exception, which ADR-0006 forbids."""
     for gap in gaps or ():
@@ -424,13 +497,20 @@ def main() -> int:
         "https://schemas.agent-platform.internal/event/v1/event.schema.yaml",
         pinned["non_schema_keys"],
     )
+    approval_validator = build_validator(
+        schemas,
+        "https://schemas.agent-platform.internal/approval/v1/approval.schema.yaml",
+        pinned["non_schema_keys"],
+    )
 
     log, jobs, external = run_scenario()
     print(f"\n[1] payload ที่ระบบผลิตจริง — {len(log)} event จาก {len(jobs)} job")
     check_payloads(log, validator, pinned.get("known_gaps") or [])
-    print("\n[2] guarantee ที่ JSON Schema ตรวจไม่ได้")
+    print("\n[2] คำตัดสินที่ระบบผลิตจริง — approval/v1 (RFC-0002)")
+    check_decisions(log, jobs, approval_validator)
+    print("\n[3] guarantee ที่ JSON Schema ตรวจไม่ได้")
     check_guarantees(log, jobs, external)
-    print("\n[3] ช่องว่างที่รู้ตัว — ต้องมี issue และวันหมดอายุ")
+    print("\n[4] ช่องว่างที่รู้ตัว — ต้องมี issue และวันหมดอายุ")
     check_gap_expiry(pinned.get("known_gaps") or [], args.today)
 
     fails = [f for f in findings if f[0] == "FAIL"]

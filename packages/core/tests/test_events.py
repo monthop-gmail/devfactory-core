@@ -95,10 +95,16 @@ def test_our_events_always_carry_job_id(alice, clock):
 
 
 def test_subject_is_always_answerable(alice, clock):
+    """Every event says what it is about — and a decision is about the approval."""
     job = drive(_fresh(alice, clock), JobState.COMPLETED, alice)
+    approvals = {d.decision_id for d in job.decisions}
     for payload in job.event_payloads():
-        assert payload["subject_type"] == "job"
-        assert payload["subject_id"] == "job-001"
+        if payload["event_type"] == "GOVERNANCE_DECISION":
+            assert payload["subject_type"] == "approval"
+            assert payload["subject_id"] in approvals
+        else:
+            assert payload["subject_type"] == "job"
+            assert payload["subject_id"] == "job-001"
 
 
 def test_tenant_scope_on_every_event(alice, clock):
@@ -138,11 +144,12 @@ def test_optional_keys_are_omitted_when_unset(alice, clock):
 
 
 def test_decision_events_name_the_authority(alice, planner, clock):
-    """Every APPROVE is auditable — the record says who signed it."""
+    """Every APPROVE is auditable — both records say who signed it."""
     job = _fresh(alice, clock)
     job.submit_for_governance()
-    event = job.approve(authority=planner, reason="meets milestone")
-    assert event.as_payload()["actor"]["id"] == "planner-1"
+    job.approve(authority=planner, reason="meets milestone")
+    signed = [p["actor"]["id"] for p in job.event_payloads()[-2:]]
+    assert signed == ["planner-1", "planner-1"]
 
 
 def test_transition_returns_the_emitted_event(alice, clock):
@@ -190,7 +197,7 @@ def test_job_exposes_its_identity_and_settlement(alice, clock):
 
 
 def test_the_seven_canonical_event_types_are_declared():
-    """RFC-0003's vocabulary, in one place. The state machine emits three of them."""
+    """RFC-0003's vocabulary, in one place. The state machine emits four of them."""
     assert {t.value for t in EventType} == {
         "JOB_CREATED",
         "STATE_TRANSITION",
@@ -202,14 +209,17 @@ def test_the_seven_canonical_event_types_are_declared():
     }
 
 
-def test_the_state_machine_emits_only_its_own_three(alice, clock):
+def test_the_state_machine_emits_only_its_own_four(alice, clock):
+    """The other three belong to orchestration and execution — issue #7 and later."""
     job = drive(_fresh(alice, clock), JobState.COMPLETED, alice)
     emitted = {e.event_type for e in job.events}
     assert emitted <= {
         EventType.JOB_CREATED,
         EventType.STATE_TRANSITION,
+        EventType.GOVERNANCE_DECISION,
         EventType.JOB_COMPLETED,
     }
+    assert EventType.GOVERNANCE_DECISION in emitted
 
 
 # ---- the wider surface RFC-0008 needs for external events -------------------

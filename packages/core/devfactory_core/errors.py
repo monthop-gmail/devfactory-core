@@ -105,6 +105,99 @@ class MissingAuthority(JobStateMachineError):
         )
 
 
+class UnmappedDecision(JobStateMachineError):
+    """A decision this repository has declared but has not yet said what to do with.
+
+    ``REQUIRE_CHANGES`` is the only one today. RFC-0002 declares all three
+    decision types and the vocabulary is a closed set, so the type has to exist;
+    what no RFC here says is **which state a job lands in** when it is returned
+    for changes. The engine refuses rather than guessing, because a governance
+    record whose recorded meaning is not the meaning that was made is worse than
+    a refusal. See ``states.DECISION_TARGET`` for the candidates and why each
+    needs an RFC first.
+    """
+
+    def __init__(self, decision: str) -> None:
+        self.decision = decision
+        super().__init__(
+            f"{decision} is declared by RFC-0002 but no RFC in this repository says "
+            f"which state it moves a job to — the engine will not guess a destination. "
+            f"Settling that is an RFC (see states.DECISION_TARGET), not a code change."
+        )
+
+
+class IncompleteDecision(JobStateMachineError):
+    """A decision missing one of the four meanings RFC-0002 requires."""
+
+    def __init__(self, field: str) -> None:
+        self.field = field
+        super().__init__(
+            f"a decision without {field} is not auditable — RFC-0002 requires the "
+            f"decision, the reason for it, the authority accountable for it, and when "
+            f"it was made"
+        )
+
+
+class SelfApproval(JobStateMachineError):
+    """An agent tried to APPROVE the work it is itself accountable for.
+
+    "No agent has total authority" — RFC-0002 rejects agent self-approval by
+    name and ``approval/v1`` states it as an invariant on ``authority``.
+    """
+
+    def __init__(self, authority_id: str, job_id: str) -> None:
+        self.authority_id = authority_id
+        self.job_id = job_id
+        super().__init__(
+            f"agent {authority_id!r} cannot APPROVE {job_id} — it is the principal "
+            f"accountable for that job, and no agent has total authority over its own work"
+        )
+
+
+class CrossTenantDecision(JobStateMachineError):
+    """A decision from one tenant tried to decide another tenant's job.
+
+    RFC-0006 and ``approval/v1``: a mismatch is invalid and must be **rejected,
+    never coerced** — silently rewriting the tenant is how an isolation boundary
+    stops being one.
+    """
+
+    def __init__(self, field: str, decision_value: str, subject_value: str) -> None:
+        self.field = field
+        self.decision_value = decision_value
+        self.subject_value = subject_value
+        super().__init__(
+            f"decision {field}={decision_value!r} does not match the job's "
+            f"{field}={subject_value!r} — a decision must live in the same scope as what "
+            f"it decides about, and a mismatch is rejected, never coerced"
+        )
+
+
+class WrongDecisionSubject(JobStateMachineError):
+    """A decision about something else was offered as this job's decision."""
+
+    def __init__(self, subject_type: str, subject_id: str, job_id: str) -> None:
+        self.subject_type = subject_type
+        self.subject_id = subject_id
+        self.job_id = job_id
+        super().__init__(
+            f"decision is about {subject_type}:{subject_id}, not job:{job_id} — "
+            f"an approval granted to one subject cannot authorise another"
+        )
+
+
+class DecisionStateMismatch(JobStateMachineError):
+    """The decision offered does not produce the transition being made."""
+
+    def __init__(self, decision: str, requested: str) -> None:
+        self.decision = decision
+        self.requested = requested
+        super().__init__(
+            f"a {decision} decision does not move a job to {requested} — the audit "
+            f"trail would record a decision that was never made"
+        )
+
+
 class InvalidIdentifier(JobStateMachineError):
     """Identifiers must match the identity/v1 Id form."""
 

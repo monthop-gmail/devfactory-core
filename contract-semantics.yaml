@@ -101,6 +101,21 @@ contracts:
         - agent ออก APPROVE ให้งานของตัวเองไม่ได้ — "no agent has total authority"
         - REQUIRE_CHANGES ไม่ใช่ REJECT — งานยังมีชีวิตและกลับมายื่นใหม่ได้
 
+    # ℹ️ ไม่ใช่ส่วนหนึ่งของ contract — บอกสถานะฝั่ง implementation เฉย ๆ
+    # อยู่นอก frozen: จึงไม่ขยับ semantics_version และไม่กระทบ drift_check
+    implementation_status:
+      note: >-
+        packages/core ทำ decision interface ครบตาม RFC-0002 แล้ว (issue #5)
+        vocabulary ยังมีครบ 3 ค่าตามชุดปิด — ห้ามลบค่าใดออกจาก contract
+      unmapped:
+        - decision: REQUIRE_CHANGES
+          detail: >-
+            engine ปฏิเสธด้วย UnmappedDecision เพราะยังไม่มี RFC ที่ repo นี้บอกว่า
+            job ที่ถูกตีกลับให้แก้ไปอยู่ state ไหน · REJECTED ผิด invariant
+            ("REQUIRE_CHANGES ไม่ใช่ REJECT") · DRAFT ต้องมี edge ใหม่ที่ยังไม่มี RFC ประกาศ
+            · state ที่ 14 คือการเปลี่ยน lifecycle · ดู states.DECISION_TARGET
+          means: ค่านี้ยังอยู่ใน contract — สิ่งที่ขาดคือปลายทาง ไม่ใช่ตัวค่า
+
     platform_may_add_freely:
       # เพิ่มได้ผ่าน ADR ฝั่ง agent-platform อย่างเดียว ไม่ต้องมี RFC ที่นี่ (Rule 1)
       # ปิดประเด็น §4.6 ของ consumer-devfactory-core.md — rfcs/0002 ไม่ได้ "ขาด" field เหล่านี้
