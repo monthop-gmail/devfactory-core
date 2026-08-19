@@ -226,3 +226,32 @@ class UnauditedExecution(ReplayError):
             f"job {job_id}: event {event_id} enters {state}, but no APPROVE decision "
             f"appears in the trail before it — execution without a recorded approval"
         )
+
+
+class ExecutionAfterExpiry(ReplayError):
+    """The trail shows execution continuing under an approval that had expired.
+
+    The other half of the direction lock, read back off the log. ``approval/v1``
+    says an approval past its ``expires_at`` cannot be used to run work; the
+    engine refuses it as it writes, and this is the same claim checked against
+    what was actually written — by something that was not there at the time and
+    can compare the recorded deadline against the recorded moment.
+
+    Distinct from :class:`UnauditedExecution` on purpose. There the trail cannot
+    show an approval at all; here it shows one and shows that it had run out,
+    which is a different finding about the log and needs different follow-up.
+    """
+
+    def __init__(
+        self, job_id: str, state: str, event_id: str, *, expired_at: str, occurred_at: str
+    ) -> None:
+        self.job_id = job_id
+        self.state = state
+        self.event_id = event_id
+        self.expired_at = expired_at
+        self.occurred_at = occurred_at
+        super().__init__(
+            f"job {job_id}: event {event_id} enters {state} at {occurred_at}, but the "
+            f"APPROVE in force expired at {expired_at} — the trail records work "
+            f"running on an approval that had already lapsed"
+        )

@@ -7,6 +7,8 @@ refusal.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from conftest import drive
@@ -447,6 +449,65 @@ def test_decision_ids_are_unique_and_well_formed(alice, reviewer, clock):
 def test_identifiers_on_a_decision_are_validated(reviewer, clock):
     with pytest.raises(InvalidIdentifier):
         _decision(clock, reviewer, tenant_id="ACME")
+
+
+# ---- expiry, approval/v1 expires_at ----------------------------------------
+# "approval ที่หมดอายุแล้วใช้เดินงานไม่ได้ ต้องขอใหม่" — the contract states the meaning
+# on an optional field, so the record has to be able to carry it. Issue #17.
+
+
+def test_an_approval_can_carry_the_deadline_it_was_granted_with(alice, reviewer, clock):
+    deadline = datetime(2026, 8, 20, 9, tzinfo=timezone.utc)
+    record = _at_the_gate(alice, clock).approve(
+        authority=reviewer, reason="ok", expires_at=deadline
+    )
+    assert record.expires_at == deadline
+
+
+def test_the_deadline_reaches_the_wire_under_the_contracts_own_name(
+    alice, reviewer, clock
+):
+    deadline = datetime(2026, 8, 20, 9, tzinfo=timezone.utc)
+    payload = (
+        _at_the_gate(alice, clock)
+        .approve(authority=reviewer, reason="ok", expires_at=deadline)
+        .as_payload()
+    )
+    assert payload["expires_at"] == deadline.isoformat()
+
+
+def test_an_approval_without_a_deadline_says_nothing_about_one(alice, reviewer, clock):
+    """Optional in ``approval/v1`` and optional here — absent is not "expired"."""
+    record = _at_the_gate(alice, clock).approve(authority=reviewer, reason="ok")
+    assert record.expires_at is None
+    assert "expires_at" not in record.as_payload()
+    assert record.is_expired(datetime(2999, 1, 1, tzinfo=timezone.utc)) is False
+
+
+def test_expiry_is_inclusive_at_the_moment_named(alice, reviewer, clock):
+    """``expires_at`` is when it stops being usable, not the last moment it is."""
+    deadline = datetime(2026, 8, 20, 9, tzinfo=timezone.utc)
+    record = _at_the_gate(alice, clock).approve(
+        authority=reviewer, reason="ok", expires_at=deadline
+    )
+    assert record.is_expired(deadline - timedelta(seconds=1)) is False
+    assert record.is_expired(deadline) is True
+    assert record.is_expired(deadline + timedelta(seconds=1)) is True
+
+
+def test_a_deadline_without_an_offset_is_refused(alice, reviewer, clock):
+    """A naive deadline expires at a different moment for every reader."""
+    with pytest.raises(ValueError, match="timezone-aware"):
+        _at_the_gate(alice, clock).approve(
+            authority=reviewer, reason="ok", expires_at=datetime(2026, 8, 20, 9)
+        )
+
+
+def test_a_deadline_that_is_not_a_time_is_refused(alice, reviewer, clock):
+    with pytest.raises(ValueError, match="datetime"):
+        _at_the_gate(alice, clock).approve(
+            authority=reviewer, reason="ok", expires_at="2026-08-20T09:00:00+00:00"
+        )
 
 
 # ---- the subject -----------------------------------------------------------

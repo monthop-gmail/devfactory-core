@@ -126,6 +126,10 @@ which is about `FAILED`. It is also a behaviour change, whereas everything above
 **Tracked in [#17](https://github.com/monthop-gmail/devfactory-core/issues/17).** Not implemented
 in this PR by design.
 
+*Since resolved (2026-08-19), as [RFC-0007 Amendment 1](0007-job-lifecycle-completeness.md#amendment-1--approved-may-time-out-2026-08-19)
+rather than as an RFC of its own — the ownership note above says why. Migration step 6
+below reads "separate RFC" because that was the expectation when this was written.*
+
 ## Open Question — `not_derived` changes are unversioned
 
 `semantics_version` is tied to the `frozen` block, which governs derived contracts. This RFC

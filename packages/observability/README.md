@@ -91,6 +91,7 @@ seen = replay_job(log.read("acme", job_id="job-001"))
 seen.state                 # JobState.COMPLETED
 seen.awaiting_from         # where a paused job would return to
 seen.approval_decision_id  # the APPROVE it was executing under
+seen.approval_expires_at   # when that APPROVE stopped authorising, if it said
 seen.history               # every transition, reconstructed
 ```
 
@@ -112,6 +113,7 @@ no second transition table here to drift.
 | records an edge `states.py` does not declare | `UndeclaredTransition` |
 | enters `APPROVED`/`REJECTED` with no matching decision | `UnauditedDecision` |
 | begins execution with no `APPROVE` before it | `UnauditedExecution` |
+| begins execution after that `APPROVE`'s `expires_at` | `ExecutionAfterExpiry` |
 | `COMPLETED` and `JOB_COMPLETED` disagree | `IncompleteSettlement` |
 | an unrecognised event type | **skipped** — `event/v1`: keep it, do not interpret it |
 | an external event | **skipped** — RFC-0008: another system is not an authority on our lifecycle |

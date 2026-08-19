@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import dataclasses
+from datetime import datetime, timezone
+
 import pytest
 
 from conftest import drive
 from devfactory_core import Job, JobState, Principal
 from devfactory_core.errors import (
     ExecutionBeforeApproval,
+    ExpiredApproval,
     InvalidIdentifier,
     InvalidTransition,
     MissingApprovalContext,
@@ -16,6 +20,11 @@ from devfactory_core.errors import (
     MissingReason,
     WrongResumeState,
 )
+from devfactory_core.states import POST_APPROVAL
+
+#: Either side of the ``clock`` fixture, which starts at 2026-08-18 09:00 UTC.
+EXPIRY_PAST = datetime(2026, 8, 18, 8, tzinfo=timezone.utc)
+EXPIRY_FAR_FUTURE = datetime(2027, 1, 1, tzinfo=timezone.utc)
 
 
 def _fresh(alice, clock, **kw) -> Job:
@@ -207,3 +216,140 @@ def test_supersede_records_the_link_in_the_audit_trail(alice, clock):
     replacement = job.supersede(job_id="job-002")
     created = replacement.events[0].as_payload()
     assert created["metadata"]["supersedes_job_id"] == "job-001"
+
+
+# ---- approval expiry, RFC-0007 Amendment 1 ---------------------------------
+# ``approval/v1``: "approval ที่หมดอายุแล้วใช้เดินงานไม่ได้ ต้องขอใหม่". The engine
+# refuses rather than tolerates, which is what makes that sentence a rule and not
+# a comment. Issue #17.
+
+
+def _approved_until(alice, clock, deadline, authority):
+    """A job holding an APPROVE that expires at ``deadline``."""
+    job = _fresh(alice, clock)
+    job.submit_for_governance()
+    job.approve(authority=authority, reason="approved for milestone", expires_at=deadline)
+    return job
+
+
+def test_an_approval_that_has_not_expired_still_authorises_work(alice, clock):
+    job = _approved_until(alice, clock, EXPIRY_FAR_FUTURE, alice)
+    assert job.approval_expired is False
+    job.transition(JobState.TASK_PLANNING)
+    assert job.state is JobState.TASK_PLANNING
+
+
+#: Where each post-approval state is entered from. Expiry can only be tested on an
+#: edge the table declares, so reaching every one of them means starting from a
+#: different place each time.
+_ENTERED_FROM = {
+    JobState.TASK_PLANNING: JobState.APPROVED,
+    JobState.IN_PROGRESS: JobState.TASK_PLANNING,
+    JobState.AWAITING_APPROVAL: JobState.IN_PROGRESS,
+    JobState.VALIDATING: JobState.IN_PROGRESS,
+    JobState.DEPLOYABLE: JobState.VALIDATING,
+}
+
+
+def test_the_expiry_check_covers_every_state_that_needs_an_approval():
+    """Both halves of the direction lock guard the same set, or there is a hole.
+
+    If expiry covered less than ``POST_APPROVAL`` there would be a state reachable
+    without a *valid* approval but not without *any* approval, which is a strange
+    thing for a governance engine to believe.
+    """
+    assert set(_ENTERED_FROM) == POST_APPROVAL
+
+
+@pytest.mark.parametrize(
+    "target", sorted(POST_APPROVAL, key=lambda s: s.value), ids=lambda s: s.value
+)
+def test_no_post_approval_state_is_reachable_under_an_expired_approval(
+    target, alice, clock
+):
+    """The set that means "execution was authorised" is the set expiry closes."""
+    origin = _ENTERED_FROM[target]
+    job = drive(_fresh(alice, clock), origin, alice)
+    job._approval = dataclasses.replace(job.approval, expires_at=EXPIRY_PAST)
+    with pytest.raises(ExpiredApproval) as excinfo:
+        job.transition(target)
+    assert excinfo.value.requested == target.value
+    assert job.state is origin
+
+
+def test_a_refused_expired_transition_leaves_no_trace(alice, clock):
+    job = _approved_until(alice, clock, EXPIRY_PAST, alice)
+    before = len(job.events), len(job.history)
+    with pytest.raises(ExpiredApproval):
+        job.transition(JobState.TASK_PLANNING)
+    assert (len(job.events), len(job.history)) == before
+
+
+def test_an_approval_can_lapse_while_the_job_is_already_working(alice, clock):
+    """The deadline is on the approval, not on the step it authorised."""
+    job = _approved_until(alice, clock, EXPIRY_FAR_FUTURE, alice)
+    job.transition(JobState.TASK_PLANNING)
+    job.transition(JobState.IN_PROGRESS)
+    job._approval = dataclasses.replace(job.approval, expires_at=EXPIRY_PAST)
+    with pytest.raises(ExpiredApproval):
+        job.transition(JobState.VALIDATING)
+
+
+def test_a_pause_that_outlasts_the_approval_cannot_be_resumed(alice, clock):
+    """Waiting for a human is the likeliest way a deadline gets passed."""
+    job = _approved_until(alice, clock, EXPIRY_FAR_FUTURE, alice)
+    job.transition(JobState.TASK_PLANNING)
+    job.transition(JobState.IN_PROGRESS)
+    job.pause_for_approval()
+    job._approval = dataclasses.replace(job.approval, expires_at=EXPIRY_PAST)
+    with pytest.raises(ExpiredApproval):
+        job.resume()
+    assert job.state is JobState.AWAITING_APPROVAL
+
+
+def test_a_job_holding_an_expired_approval_can_still_time_out(alice, clock):
+    """RFC-0007 Amendment 1 — the reason APPROVED joined TIMEOUTABLE."""
+    job = _approved_until(alice, clock, EXPIRY_PAST, alice)
+    job.time_out(reason="approval_expired — the approval lapsed before planning began")
+    assert job.state is JobState.TIMED_OUT
+    assert job.history[-1].from_state is JobState.APPROVED
+
+
+def test_a_job_holding_an_expired_approval_can_still_be_cancelled(alice, clock):
+    job = _approved_until(alice, clock, EXPIRY_PAST, alice)
+    job.cancel(reason="no longer wanted", principal=alice)
+    assert job.state is JobState.CANCELLED
+
+
+def test_the_only_ways_out_of_an_expired_approval_are_the_two_terminals(alice, clock):
+    """Recorded as it is, not as it might be nicer.
+
+    ``approval/v1`` says the remedy is "ต้องขอใหม่", and this lifecycle has no edge
+    for asking again: ``APPROVED`` reaches only ``TASK_PLANNING`` (now shut),
+    ``CANCELLED``, and — since RFC-0007 Amendment 1 — ``TIMED_OUT``. So the job
+    settles and a re-request is a *new* job. Giving ``APPROVED`` a way back to
+    ``GOVERNANCE_ANALYSIS`` would be a lifecycle change and belongs in an RFC, so
+    this test asserts today's shape rather than inventing tomorrow's.
+    """
+    job = _approved_until(alice, clock, EXPIRY_PAST, alice)
+    reachable = {s for s in job.allowed_targets()}
+    assert reachable == {JobState.TASK_PLANNING, JobState.CANCELLED, JobState.TIMED_OUT}
+    with pytest.raises(ExpiredApproval):
+        job.transition(JobState.TASK_PLANNING)
+
+
+def test_an_approval_without_a_deadline_never_expires(alice, clock):
+    """The pre-existing behaviour, asserted so the new guard cannot swallow it."""
+    job = _fresh(alice, clock)
+    job.submit_for_governance()
+    job.approve(authority=alice, reason="approved for milestone")
+    assert job.approval_expires_at is None
+    assert job.approval_expired is False
+    job.transition(JobState.TASK_PLANNING)
+    assert job.state is JobState.TASK_PLANNING
+
+
+def test_a_job_with_no_approval_at_all_is_not_reported_as_expired(alice, clock):
+    job = _fresh(alice, clock)
+    assert job.approval_expires_at is None
+    assert job.approval_expired is False

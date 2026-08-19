@@ -8,6 +8,7 @@ package owns: the boundary between a trail and everything else in the log.
 from __future__ import annotations
 
 import dataclasses
+from datetime import datetime, timezone
 
 import pytest
 from devfactory_core import Event, EventType, JobState, Principal
@@ -17,6 +18,7 @@ from devfactory_observability import (
     BrokenTrail,
     EmptyTrail,
     EventLog,
+    ExecutionAfterExpiry,
     IncompleteSettlement,
     ReplayError,
     UnauditedDecision,
@@ -375,3 +377,119 @@ def test_replay_tenant_reads_only_the_tenant_it_names(make_job, reviewer):
 
 def test_an_unknown_tenant_replays_as_nothing(make_job):
     assert replay_tenant(EventLog(), "nobody") == {}
+
+
+# ---- approval expiry, read back off the log --------------------------------
+# The engine refuses to move a job on a lapsed approval. That is a claim about the
+# log too: the deadline and the moment are both recorded, so a reader who was not
+# there can check it. Issue #17 · RFC-0007 Amendment 1.
+
+EXPIRY_PAST = datetime(2026, 8, 18, 8, tzinfo=timezone.utc)
+EXPIRY_FAR_FUTURE = datetime(2027, 1, 1, tzinfo=timezone.utc)
+
+
+def _recorded_expiry(events, expires_at):
+    """The same trail, with the recorded approval carrying ``expires_at``.
+
+    Forged rather than produced, because the engine will not produce it — which is
+    the whole reason replay checks the claim independently.
+    """
+    return [
+        dataclasses.replace(
+            event,
+            metadata={
+                **event.metadata,
+                "approval": {**event.metadata["approval"], "expires_at": expires_at},
+            },
+        )
+        if event.type_value == EventType.GOVERNANCE_DECISION.value
+        else event
+        for event in events
+    ]
+
+
+def test_replay_recovers_the_deadline_the_approval_was_granted_with(make_job, reviewer):
+    job = make_job()
+    job.submit_for_governance(reason="ready")
+    job.approve(authority=reviewer, reason="approved", expires_at=EXPIRY_FAR_FUTURE)
+    assert replay_job(job.events).approval_expires_at == EXPIRY_FAR_FUTURE
+
+
+def test_an_approval_with_no_deadline_replays_as_having_none(make_job, reviewer):
+    job = approved(make_job(), reviewer)
+    assert replay_job(job.events).approval_expires_at is None
+
+
+def test_the_deadline_survives_the_transitions_that_follow_it(make_job, reviewer):
+    job = make_job()
+    job.submit_for_governance(reason="ready")
+    job.approve(authority=reviewer, reason="approved", expires_at=EXPIRY_FAR_FUTURE)
+    job.transition(JobState.TASK_PLANNING)
+    seen = replay_job(job.events)
+    assert seen.approval_expires_at == EXPIRY_FAR_FUTURE
+    assert seen.state is JobState.TASK_PLANNING
+
+
+def test_a_rejection_clears_the_deadline_along_with_the_approval(make_job, reviewer):
+    job = make_job()
+    job.submit_for_governance(reason="ready")
+    job.approve(authority=reviewer, reason="approved", expires_at=EXPIRY_FAR_FUTURE)
+    job.transition(JobState.TASK_PLANNING)
+    job.fail(reason="the approved plan does not work")
+    replacement = job.supersede(job_id="job-002")
+    replacement.submit_for_governance(reason="revised")
+    replacement.reject(authority=reviewer, reason="still wrong")
+    seen = replay_job(replacement.events)
+    assert seen.approval_decision_id is None
+    assert seen.approval_expires_at is None
+
+
+def test_a_trail_that_runs_work_on_a_lapsed_approval_is_refused(make_job, reviewer):
+    job = approved(make_job(), reviewer)
+    job.transition(JobState.TASK_PLANNING)
+    with pytest.raises(ExecutionAfterExpiry) as excinfo:
+        replay_job(_recorded_expiry(job.events, EXPIRY_PAST.isoformat()))
+    assert excinfo.value.state == "TASK_PLANNING"
+    assert excinfo.value.expired_at == EXPIRY_PAST.isoformat()
+
+
+def test_a_trail_that_stops_at_approved_replays_even_with_a_lapsed_deadline(
+    make_job, reviewer
+):
+    """Holding an expired approval is not itself a defect in the log.
+
+    The job sat in ``APPROVED`` and never used it. What the trail must not show is
+    the job *moving* on it — so replay accepts this and refuses the one above.
+    """
+    seen = replay_job(
+        _recorded_expiry(approved(make_job(), reviewer).events, EXPIRY_PAST.isoformat())
+    )
+    assert seen.state is JobState.APPROVED
+    assert seen.approval_expires_at == EXPIRY_PAST
+
+
+def test_the_approved_to_timed_out_edge_replays(make_job, reviewer):
+    """RFC-0007 Amendment 1's edge, read back off the log rather than asserted."""
+    job = approved(make_job(), reviewer)
+    job.time_out(reason="approval_expired — the approval lapsed before planning began")
+    seen = replay_job(job.events)
+    assert seen.state is JobState.TIMED_OUT
+    assert seen.history[-1].from_state is JobState.APPROVED
+
+
+@pytest.mark.parametrize(
+    "recorded", ["not a date", "", 17, None, "2026-08-18T08:00:00"], ids=repr
+)
+def test_a_deadline_replay_cannot_read_is_treated_as_absent(recorded, make_job, reviewer):
+    """``approval/v1`` types the field; the conformance check judges the format.
+
+    Raising here would make this module a second schema, which RFC-0005 Rule 4
+    forbids, and would turn a payload defect into a trail defect — a different
+    finding about a different thing. The last case is a deadline with no offset,
+    which names no moment that can be compared against a recorded one.
+    """
+    job = approved(make_job(), reviewer)
+    job.transition(JobState.TASK_PLANNING)
+    seen = replay_job(_recorded_expiry(job.events, recorded))
+    assert seen.approval_expires_at is None
+    assert seen.state is JobState.TASK_PLANNING
