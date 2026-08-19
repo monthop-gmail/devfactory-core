@@ -56,6 +56,7 @@ enforced, so the engine rejects rather than repairs.
 | --- | --- |
 | an edge not in the table | `InvalidTransition`, naming what *was* allowed |
 | anything out of `COMPLETED` / `FAILED` / `CANCELLED` / `TIMED_OUT` | `TerminalState` — recovery is `supersede()`, not a revival |
+| `supersede()` on a job that has not settled, or on a `COMPLETED` one | `InvalidTransition` — an attempt that delivered is not one to retry |
 | `TASK_PLANNING` before `APPROVED` | `InvalidTransition` — execution is forbidden before approval |
 | any post-approval state under an approval past its `expires_at` | `ExpiredApproval` — it has to be granted again |
 | `FAILED` / `CANCELLED` / `TIMED_OUT` without a reason | `MissingReason` |
@@ -152,3 +153,22 @@ expires. What changed with issue #17 is that `APPROVED` is now in `TIMEOUTABLE`
 so a job holding an approval that ran out has an honest terminal to reach instead of
 waiting for a human to cancel it. The timeout *policy* — how long an approval is good for
 — stays out of scope, as it is in RFC-0007 and RFC-0010.
+
+## Recovery
+
+`approval/v1` does not stop at "an expired approval cannot run work": it says
+*ต้องขอใหม่*. Asking again is a **new job** that names the one it replaces — never a
+revival, so the replacement starts at `DRAFT` and passes governance again.
+
+```python
+expired.state                     # TIMED_OUT — the approval lapsed where it sat
+again = expired.supersede(job_id="job-007-next")
+again.supersedes_job_id           # "job-007", and it is in the JOB_CREATED event
+```
+
+Any terminal that settled **without delivering** may be named — `states.SUPERSEDABLE`,
+which is `FAILED`, `CANCELLED`, and `TIMED_OUT`. `COMPLETED` may not:
+[RFC-0007 Amendment 2](../../rfcs/0007-job-lifecycle-completeness.md#amendment-2--a-job-may-supersede-any-terminal-it-did-not-deliver-from-2026-08-20)
+(issue #21) widened the field from `FAILED` alone and drew the line there, because a job
+that delivered is not an attempt awaiting another one — work that builds on it is new work
+and wants a link that says so.

@@ -101,6 +101,10 @@ remaining:
     approval/v1 v1.1.0 ฝากไว้กับผู้ผลิต (ใบที่อ้างต้องมีจริง · tenant เดียวกัน ·
     subject เดียวกัน · ห้ามชี้ตัวเอง) — ทางเดิน default ทำครบอยู่แล้ว จึงยังไม่มี payload
     ที่ผิด แต่ประตูนี้เปิดอยู่
+  - constructor ของ Job รับ supersedes_job_id ตรง ๆ โดยตรวจแค่รูปแบบ id — ใบที่อ้างมีจริงไหม
+    อยู่ tenant เดียวกันไหม จบแบบไม่ได้ส่งมอบงานจริงไหม ยังไม่มีใครตรวจ (rfcs/0007 Amendment 2)
+    · Job.supersede() ซึ่งถือ job ทั้งสองใบอยู่ในมือบังคับกฎครบ ประตูที่เปิดคือทางที่ข้ามมันไป
+    · ตรวจให้ครบต้องมี registry ของ job ซึ่ง repo นี้ยังไม่มี (in-memory ทีละใบ)
 
 registration: conforming   # registered | conforming
 

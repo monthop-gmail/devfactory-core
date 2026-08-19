@@ -74,6 +74,28 @@ def test_the_supersession_link_survives_the_round_trip(make_job, reviewer):
     assert replay_job(replacement.events).supersedes_job_id == "job-001"
 
 
+def test_the_link_survives_when_the_predecessor_timed_out(make_job, reviewer):
+    """RFC-0007 Amendment 2 (issue #21) — the case the trail could not carry before.
+
+    An approval that lapses settles its job in ``TIMED_OUT``, which cannot reach
+    ``FAILED``; while ``supersedes_job_id`` was reserved for ``FAILED``, asking
+    again as ``approval/v1`` requires produced a job the log could not connect to
+    anything. A reader who was not there can now follow it.
+    """
+    lapsed = make_job()
+    lapsed.submit_for_governance()
+    lapsed.approve(
+        authority=reviewer, reason="approved", expires_at=datetime(2020, 1, 1, tzinfo=timezone.utc)
+    )
+    lapsed.time_out(reason="approval_expired — lapsed before planning began")
+
+    again = lapsed.supersede(job_id="job-002")
+    seen_before, seen_after = replay_job(lapsed.events), replay_job(again.events)
+    assert seen_after.supersedes_job_id == seen_before.job_id
+    assert seen_before.state is JobState.TIMED_OUT
+    assert seen_after.state is JobState.DRAFT
+
+
 def test_decisions_are_recovered_in_order(make_job, reviewer):
     job = make_job()
     job.submit_for_governance()

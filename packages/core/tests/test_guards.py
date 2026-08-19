@@ -18,9 +18,10 @@ from devfactory_core.errors import (
     MissingAuthority,
     MissingPrincipal,
     MissingReason,
+    TerminalState,
     WrongResumeState,
 )
-from devfactory_core.states import POST_APPROVAL
+from devfactory_core.states import POST_APPROVAL, SUPERSEDABLE, TERMINAL
 
 #: Either side of the ``clock`` fixture, which starts at 2026-08-18 09:00 UTC.
 EXPIRY_PAST = datetime(2026, 8, 18, 8, tzinfo=timezone.utc)
@@ -218,13 +219,29 @@ def test_unanswered_approval_times_out(alice, clock):
 # ---- recovery, RFC-0007 ----------------------------------------------------
 
 
-def test_failed_job_is_superseded_not_revived(alice, clock):
-    job = drive(_fresh(alice, clock), JobState.FAILED, alice)
+@pytest.mark.parametrize("terminal", sorted(SUPERSEDABLE, key=lambda s: s.value))
+def test_a_settled_job_is_superseded_not_revived(terminal, alice, clock):
+    """RFC-0007 Amendment 2: every terminal that did not deliver, not just FAILED.
+
+    ``TIMED_OUT`` is the one the amendment exists for — an approval that lapses
+    settles there and cannot reach ``FAILED`` at all (RFC-0010), so before this the
+    *"ต้องขอใหม่"* half of ``approval/v1`` had no way to keep the chain.
+    """
+    job = drive(_fresh(alice, clock), terminal, alice)
     replacement = job.supersede(job_id="job-002")
     assert replacement.state is JobState.DRAFT
     assert replacement.supersedes_job_id == "job-001"
     assert replacement.tenant_id == job.tenant_id
     assert replacement.workspace_id == job.workspace_id
+
+
+def test_the_superseded_job_is_still_terminal(alice, clock):
+    """Amendment 2 relaxed who may be *referred to*, not what may happen to them."""
+    job = drive(_fresh(alice, clock), JobState.TIMED_OUT, alice)
+    job.supersede(job_id="job-002")
+    assert job.state is JobState.TIMED_OUT
+    with pytest.raises(TerminalState):
+        job.transition(JobState.TASK_PLANNING)
 
 
 def test_replacement_must_pass_governance_again(alice, clock):
@@ -234,10 +251,22 @@ def test_replacement_must_pass_governance_again(alice, clock):
         replacement.transition(JobState.TASK_PLANNING)
 
 
-def test_only_a_failed_job_can_be_superseded(alice, clock):
+def test_a_job_that_has_not_settled_cannot_be_superseded(alice, clock):
     job = drive(_fresh(alice, clock), JobState.IN_PROGRESS, alice)
     with pytest.raises(InvalidTransition):
         job.supersede(job_id="job-002")
+
+
+def test_a_completed_job_cannot_be_superseded(alice, clock):
+    """It delivered. What follows it is new work, not another attempt — Amendment 2."""
+    job = drive(_fresh(alice, clock), JobState.COMPLETED, alice)
+    with pytest.raises(InvalidTransition) as excinfo:
+        job.supersede(job_id="job-002")
+    assert "new work" in str(excinfo.value)
+
+
+def test_supersedable_is_every_terminal_that_did_not_deliver():
+    assert SUPERSEDABLE == TERMINAL - {JobState.COMPLETED}
 
 
 def test_supersede_records_the_link_in_the_audit_trail(alice, clock):
@@ -356,15 +385,42 @@ def test_the_only_ways_out_of_an_expired_approval_are_the_two_terminals(alice, c
     ``approval/v1`` says the remedy is "ต้องขอใหม่", and this lifecycle has no edge
     for asking again: ``APPROVED`` reaches only ``TASK_PLANNING`` (now shut),
     ``CANCELLED``, and — since RFC-0007 Amendment 1 — ``TIMED_OUT``. So the job
-    settles and a re-request is a *new* job. Giving ``APPROVED`` a way back to
-    ``GOVERNANCE_ANALYSIS`` would be a lifecycle change and belongs in an RFC, so
-    this test asserts today's shape rather than inventing tomorrow's.
+    settles and a re-request is a *new* job — see
+    :func:`test_asking_again_after_an_approval_lapsed_keeps_the_chain`, which is
+    where RFC-0007 Amendment 2 made that new job able to say what it replaces.
+    Giving ``APPROVED`` a way back to ``GOVERNANCE_ANALYSIS`` would be a lifecycle
+    change and belongs in an RFC, so this test asserts today's shape rather than
+    inventing tomorrow's.
     """
     job = _approved_until(alice, clock, EXPIRY_PAST, alice)
     reachable = {s for s in job.allowed_targets()}
     assert reachable == {JobState.TASK_PLANNING, JobState.CANCELLED, JobState.TIMED_OUT}
     with pytest.raises(ExpiredApproval):
         job.transition(JobState.TASK_PLANNING)
+
+
+def test_asking_again_after_an_approval_lapsed_keeps_the_chain(alice, clock):
+    """Both halves of *"ใช้เดินงานไม่ได้ ต้องขอใหม่"*, end to end — issue #21.
+
+    The refusal is issue #17's; what follows it is Amendment 2's. The second
+    attempt names the first, re-enters at ``DRAFT``, and executes only once a
+    *fresh* approval has been granted — the lapsed one authorises nothing on either
+    job.
+    """
+    lapsed = _approved_until(alice, clock, EXPIRY_PAST, alice)
+    with pytest.raises(ExpiredApproval):
+        lapsed.transition(JobState.TASK_PLANNING)
+    lapsed.time_out(reason="approval_expired — the approval lapsed before planning began")
+
+    again = lapsed.supersede(job_id="job-002")
+    assert again.supersedes_job_id == lapsed.job_id
+    assert again.state is JobState.DRAFT and again.approval is None
+
+    again.submit_for_governance(reason="asking again")
+    again.approve(authority=alice, reason="scope re-checked")
+    again.transition(JobState.TASK_PLANNING)
+    assert again.approval.decision_id != lapsed.approval.decision_id
+    assert lapsed.state is JobState.TIMED_OUT
 
 
 def test_an_approval_without_a_deadline_never_expires(alice, clock):

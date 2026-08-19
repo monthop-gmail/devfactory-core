@@ -41,6 +41,28 @@ TERMINAL: frozenset[JobState] = frozenset(
     {JobState.COMPLETED, JobState.FAILED, JobState.CANCELLED, JobState.TIMED_OUT}
 )
 
+#: Jobs a later job may name in ``supersedes_job_id`` — RFC-0007 Amendment 2
+#: (issue #21). Every terminal that settled **without delivering the work**.
+#:
+#: Decision 1 wrote the rule against ``FAILED`` because failure was the only
+#: recovery it was thinking about, but what it wanted is a *chain of attempts that
+#: can be audited*, and a job that ran out of time or was stopped by a person is
+#: as much a spent attempt as one that broke. Amendment 1 made that concrete: an
+#: approval that lapses sends its job to ``TIMED_OUT``, and ``approval/v1`` says
+#: what happens next — "ต้องขอใหม่". Without this set the asking-again produced an
+#: unlinked job and the chain ended where the audit question began.
+#:
+#: ``COMPLETED`` is excluded on purpose. Superseding is a claim that an attempt
+#: did not deliver and is being tried again; a completed job delivered, and work
+#: that builds on it is *new work*, not another attempt at the same work. Letting
+#: it in would turn a chain of attempts into an untyped "related to" pointer, and
+#: a reader walking the chain back could no longer tell whether the earlier link
+#: had produced anything.
+#:
+#: This changes who may be *referred to*. It relaxes nothing about the transition
+#: table: every terminal here is still terminal, and the old job is not woken.
+SUPERSEDABLE: frozenset[JobState] = TERMINAL - {JobState.COMPLETED}
+
 #: States from which execution has been authorised. Reaching any of these without
 #: passing APPROVED would violate "execution is forbidden before APPROVED".
 POST_APPROVAL: frozenset[JobState] = frozenset(

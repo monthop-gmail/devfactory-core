@@ -3,6 +3,7 @@
 ## Status
 Draft — Architecture Owner direction agreed 2026-08-17 · pending maintainer approval per `GOVERNANCE.md`
 Amended 2026-08-19 — see [Amendment 1](#amendment-1--approved-may-time-out-2026-08-19).
+Amended 2026-08-20 — see [Amendment 2](#amendment-2--a-job-may-supersede-any-terminal-it-did-not-deliver-from-2026-08-20).
 
 Amends [RFC-0001](0001-job-state-machine.md). Closes gaps 2, 3, and 4 of
 [issue #8](https://github.com/monthop-gmail/devfactory-core/issues/8) and resolves
@@ -63,6 +64,12 @@ level only.
 
 The recovery path for a failed job is a **new job** that records
 `supersedes_job_id` pointing at the failed one.
+
+Which jobs may be pointed at was widened by
+[Amendment 2](#amendment-2--a-job-may-supersede-any-terminal-it-did-not-deliver-from-2026-08-20)
+on 2026-08-20 — `FAILED` becomes every terminal that did not deliver. The rest of this
+section is as originally written, and the half of it that matters most is untouched:
+`FAILED` is still terminal, and no job is ever woken.
 
 This is the governance-preserving answer rather than the convenient one.
 Reviving a `FAILED` job would resume work under an approval that was granted
@@ -194,6 +201,96 @@ fires; orchestration does, and until it does, an approval granted without a dead
 still an approval with no expiry date. What changes here is that the deadline now has a
 meaning the engine enforces and a state to resolve into.
 
+## Amendment 2 — a job may supersede any terminal it did not deliver from (2026-08-20)
+
+Closes [issue #21](https://github.com/monthop-gmail/devfactory-core/issues/21), which
+[Amendment 1](#amendment-1--approved-may-time-out-2026-08-19) opened by half-answering a
+rule it quoted.
+
+**Decision 1's `supersedes_job_id` is no longer restricted to a `FAILED` predecessor.** A
+new job may name any predecessor that reached a terminal state **without delivering the
+work**: `FAILED`, `CANCELLED`, or `TIMED_OUT`. `COMPLETED` may not be named; see below.
+
+Nothing else moves. No edge is added, no state stops being terminal, and no job is woken.
+What changes is *who may be referred to*, not what may happen to them.
+
+### Why
+
+`approval/v1` says an expired approval cannot be used to run work and the work has to be
+asked for again — *"approval ที่หมดอายุแล้วใช้เดินงานไม่ได้ ต้องขอใหม่"*. Amendment 1
+enforced the first half: the engine refuses (`ExpiredApproval`) and the stalled job lands
+in `TIMED_OUT`. The second half had nowhere to go. A job cannot leave `TIMED_OUT`, and
+`supersedes_job_id` — the one field that says "this is another attempt at that" — was
+reserved for `FAILED`, which `APPROVED` cannot reach at all under
+[RFC-0010](0010-failable-states.md). So asking again produced a job with no link back, and
+the audit trail lost the chain at exactly the point an auditor would ask about it: *why is
+this the second time?*
+
+Decision 1 restricted the field to `FAILED` because failure was the recovery it had in
+mind, not because the link means anything specific to failure. Its stated purpose is *"a
+real chain of attempts"* — and a job whose approval lapsed, or that a person stopped, is
+as spent an attempt as one that broke. The restriction was incidental to the argument that
+produced it.
+
+The guarantee the restriction was protecting is a different one, and it is untouched: a
+new job re-enters at `DRAFT` and passes `GOVERNANCE_ANALYSIS` again, so no work resumes
+under a stale `APPROVED`. Widening who may be *cited* does not let anything be *resumed*.
+If anything it tightens the guarantee's reach, since the resubmission that used to escape
+as an unrelated job is now visibly the same work being tried again — under a fresh
+approval, with the lapsed one still standing in the trail behind it.
+
+### `COMPLETED` may not be superseded
+
+Deliberately, and this is the part worth writing down rather than leaving to inference.
+
+Superseding is a claim about an attempt: *this did not deliver, here is the next try*. A
+`COMPLETED` job delivered. Work that follows it — a fix, a revision, a second phase — is
+**new work with its own justification**, not another attempt at work already done, and it
+should enter the lifecycle saying so.
+
+Three things break if `COMPLETED` is admitted:
+
+1. **The chain stops meaning one thing.** Walk `supersedes_job_id` backwards today and
+   every link is an attempt that came up empty. Admit `COMPLETED` and the reader must
+   inspect each predecessor's terminal state to know whether it produced anything — the
+   field degrades from "chain of attempts" into an untyped "related to".
+2. **A finished outcome becomes revisable after the fact.** A later job claiming to
+   supersede a `COMPLETED` one asserts that the earlier result is spent, with no decision
+   record anywhere saying so. Nothing in this lifecycle lets a settled outcome be
+   reinterpreted by a job filed afterwards, and this would.
+3. **It answers a question nobody asked.** No rule in this repository or in `approval/v1`
+   requires a completed job to be redone. The `ต้องขอใหม่` that motivates this amendment
+   is about approvals that lapsed, which is the opposite case.
+
+What a genuine follow-up wants is a *different* link — "this builds on that" — with its own
+name and its own meaning. That is Future Work below, not a reuse of this field.
+
+### Effect on the rest of the lifecycle
+
+- **RFC-0010 is not relaxed.** `FAILED` is still refused before `APPROVED`. One of
+  RFC-0010 Decision 2's *supporting* remarks does lose its force — "a `FAILED` job that
+  never passed governance would have nothing coherent to supersede" — because a job
+  cancelled in `DRAFT` is now a coherent thing to supersede. The decision it supports
+  stands on its own primary argument, which is that a job with no work under way has
+  nothing to fail; the transition table is unchanged either way.
+- **`REJECTED` is not in the set**, because it is not terminal. A rejected job goes back to
+  `DRAFT` and is revised as itself — RFC-0001's answer, and a second job would be the wrong
+  shape for it. The same holds for a `REQUIRE_CHANGES` under
+  [RFC-0011](0011-require-changes-destination.md).
+- **`expires_at` behaviour is unchanged.** Nothing here sets a deadline, fires a timeout, or
+  alters when an approval stops authorising work.
+- **No `semantics_version` bump.** `contract-semantics.yaml` publishes the job state machine
+  under `not_derived`, outside the `frozen` subtree its own `drift_check` names as the hash
+  scope — the same reason RFC-0011's new edge did not move the version.
+
+### What this amendment does not do
+
+It does not check that the job being named is real, in the same tenant, or in a terminal
+state at all. `supersedes_job_id` is validated for shape and recorded; the engine holds one
+job in memory and cannot see the other, and inventing a registry to check it here would be
+a storage decision made by accident. `Job.supersede()` — where both jobs *are* in hand — does
+enforce the rule. The general case is recorded in Future Work rather than half-built.
+
 ## Amended job lifecycle
 
 ```text
@@ -228,7 +325,9 @@ documents together does not suggest a conflict.
 ## Open Questions from RFC-0001 — resolved
 
 **Retry semantics for `FAILED`** — resolved by Decision 1. Retry is
-execution-level only; job-level recovery is a new job with `supersedes_job_id`.
+execution-level only; job-level recovery is a new job with `supersedes_job_id`, which
+since [Amendment 2](#amendment-2--a-job-may-supersede-any-terminal-it-did-not-deliver-from-2026-08-20)
+may name any terminal that did not deliver.
 
 **Parallel task substates** — resolved by deferring to `execution/v1`. Parallel
 work is modelled as child executions carrying `parent_execution_id`, not as
@@ -272,3 +371,11 @@ which is why the question stayed open: it was being asked at the wrong layer.
 - SLA and timeout policy per job type — the values, not the state.
 - Whether `supersedes_job_id` should carry forward artifacts from the failed
   attempt, or start clean.
+- A link for work that *follows* a `COMPLETED` job rather than replacing it. Amendment 2
+  refuses to overload `supersedes_job_id` for it; the need is real and wants a field whose
+  name says "builds on", with its own rules about what may be claimed.
+- Whether anything should verify that the job named in `supersedes_job_id` exists, is in
+  the same tenant, and really settled without delivering. Amendment 2 states the rule and
+  `Job.supersede()` enforces it where both jobs are in hand; the general case needs a
+  registry this repository does not have (RFC-0006 already forbids the cross-tenant case in
+  words).

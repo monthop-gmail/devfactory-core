@@ -27,8 +27,15 @@ from devfactory_core.errors import (
     ExpiredApproval,
     InvalidTransition,
     JobStateMachineError,
+    TerminalState,
 )
-from devfactory_core.states import DECISION_BY_EDGE, FAILABLE, POST_APPROVAL, TERMINAL
+from devfactory_core.states import (
+    DECISION_BY_EDGE,
+    FAILABLE,
+    POST_APPROVAL,
+    SUPERSEDABLE,
+    TERMINAL,
+)
 from devfactory_observability import (
     BrokenTrail,
     EmptyTrail,
@@ -46,6 +53,7 @@ from simulation.flows import (
     MAIN_LINE,
     advance_to,
     approval_expired,
+    approval_expired_then_resubmitted,
     cancelled_by_a_person,
     failed_at,
     happy_path,
@@ -418,6 +426,103 @@ def test_a_trail_showing_work_on_a_lapsed_approval_is_refused_on_replay(new, rev
     ]
     with pytest.raises(ExecutionAfterExpiry):
         replay_job(forged)
+
+
+# ---- [3c] asking again, with the chain intact -------------------------------
+# RFC-0007 Amendment 2 (issue #21). ``approval/v1`` asks for two things when an
+# approval expires: that it stop authorising work, and that the work be asked for
+# again. [3b] covers the first. Until Amendment 2 the second produced a job with no
+# way to say what it was a second attempt at, because ``TIMED_OUT`` could not reach
+# ``FAILED`` and ``supersedes_job_id`` was reserved for ``FAILED``.
+
+
+@pytest.fixture
+def asked_again(new, reviewer):
+    return approval_expired_then_resubmitted(
+        new,
+        job_id="job-007",
+        replacement_job_id="job-007-next",
+        authority=reviewer,
+        expires_at=EXPIRED_AT,
+    )
+
+
+def test_the_resubmission_names_the_job_it_replaces(asked_again):
+    expired, again = asked_again
+    assert expired.state is JobState.TIMED_OUT
+    assert again.supersedes_job_id == expired.job_id
+    assert visited(again) == ("DRAFT", "GOVERNANCE_ANALYSIS", "APPROVED", "TASK_PLANNING")
+
+
+def test_the_resubmission_executes_under_a_fresh_approval(asked_again):
+    """Not the lapsed one, which is still standing in the predecessor's record."""
+    expired, again = asked_again
+    assert again.approval.decision_id != expired.approval.decision_id
+    assert again.approval.expires_at is None
+    assert expired.approval.expires_at == EXPIRED_AT and expired.approval_expired
+
+
+def test_the_predecessor_is_superseded_not_revived(asked_again):
+    """Amendment 2 relaxed who may be referred to, not what may happen to them."""
+    expired, _ = asked_again
+    with pytest.raises(TerminalState):
+        expired.transition(JobState.TASK_PLANNING)
+    assert expired.state is JobState.TIMED_OUT
+
+
+def test_replay_reads_the_whole_chain_out_of_the_log_alone(asked_again, log):
+    """The audit question this closes: *why is this the second time?*"""
+    expired, again = asked_again
+    for job in (expired, again):
+        log.extend(job.events)
+    seen = replay_tenant(log, TENANT)
+
+    chain = []
+    cursor = again.job_id
+    while cursor is not None and cursor not in chain:
+        chain.append(cursor)
+        cursor = seen[cursor].supersedes_job_id
+    assert chain == ["job-007-next", "job-007"]
+    assert seen["job-007"].state is JobState.TIMED_OUT
+    assert seen["job-007"].approval_expires_at == EXPIRED_AT
+    assert seen["job-007-next"].approval_expires_at is None
+
+
+@pytest.mark.parametrize(
+    "terminal", sorted(SUPERSEDABLE, key=lambda s: s.value), ids=lambda s: s.value
+)
+def test_every_terminal_that_did_not_deliver_can_be_superseded(terminal, new, reviewer):
+    job = _settled_in(new(f"job-007-{terminal.value.lower().replace('_', '-')}"), terminal, reviewer)
+    replacement = job.supersede(job_id=f"{job.job_id}-next")
+    assert replacement.state is JobState.DRAFT
+    assert replacement.supersedes_job_id == job.job_id
+
+
+def test_a_completed_job_is_not_an_attempt_awaiting_another(new, reviewer):
+    delivered = happy_path(new, job_id="job-007-done", authority=reviewer)
+    assert delivered.state is JobState.COMPLETED
+    with pytest.raises(InvalidTransition):
+        delivered.supersede(job_id="job-007-done-again")
+
+
+def test_a_job_that_has_not_settled_cannot_be_superseded(new, reviewer):
+    running = advance_to(new("job-007-live"), JobState.IN_PROGRESS, authority=reviewer)
+    with pytest.raises(InvalidTransition):
+        running.supersede(job_id="job-007-live-next")
+
+
+def _settled_in(job: Job, terminal: JobState, authority):
+    """Drive a fresh job to one of the terminals a replacement may name."""
+    if terminal is JobState.CANCELLED:
+        job.submit_for_governance()
+        job.cancel(reason="no longer wanted", principal=authority)
+        return job
+    advance_to(job, JobState.IN_PROGRESS, authority=authority)
+    if terminal is JobState.FAILED:
+        job.fail(reason="orchestration exhausted execution retries")
+    else:
+        job.time_out(reason="sla_exceeded — nobody answered")
+    return job
 
 
 # ---- [4] the governance gate ------------------------------------------------

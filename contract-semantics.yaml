@@ -272,15 +272,26 @@ not_derived:
     cancellable: [DRAFT, GOVERNANCE_ANALYSIS, APPROVED, REJECTED, TASK_PLANNING, IN_PROGRESS,
                   AWAITING_APPROVAL, VALIDATING, DEPLOYABLE]
 
+    # rfcs/0007 Amendment 2 (2026-08-20, issue #21) — job ที่ job ใหม่อ้างถึงด้วย
+    # supersedes_job_id ได้ = terminal ที่จบโดย "ไม่ได้ส่งมอบงาน" (= terminal ทั้งหมด ลบ COMPLETED)
+    # เดิมจำกัดไว้ที่ FAILED เท่านั้น ทั้งที่เจตนาของ Decision 1 คือสายโซ่ของความพยายามที่ตรวจสอบได้
+    # — job ที่หมดเวลาหรือถูกสั่งหยุดก็เป็นความพยายามที่ใช้ไปแล้วเหมือนกัน
+    # APPROVED ที่ approval หมดอายุจบที่ TIMED_OUT (Amendment 1) และเข้า FAILED ไม่ได้ (rfcs/0010)
+    # การ "ขอใหม่" ตาม approval/v1 จึงไม่มีทางลิงก์กลับเลยก่อนหน้านี้
+    # COMPLETED อ้างไม่ได้ — งานที่ส่งมอบแล้วไม่ใช่ความพยายามที่รอความพยายามถัดไป
+    # งานที่ต่อยอดจากมันคืองานใหม่ ไม่ใช่การลองใหม่ ต้องใช้ field คนละตัวที่ยังไม่มี
+    # ไม่แตะตาราง transition · terminal ยังคง terminal · ไม่มีการปลุก job เดิม
+    supersedable: [FAILED, CANCELLED, TIMED_OUT]
+
     invariants:
       - execution ห้ามเกิดก่อน APPROVED
       - REJECTED ไม่ terminal — กลับไป DRAFT ได้
       - FAILED terminal ที่ระดับ job · retry อยู่ที่ระดับ execution เท่านั้น
-      - recovery ของ job ที่ FAILED = job ใหม่ที่มี supersedes_job_id ไม่ใช่ปลุกตัวเดิม
+      - recovery ของ job ที่จบแล้ว = job ใหม่ที่มี supersedes_job_id ไม่ใช่ปลุกตัวเดิม · job ที่อ้างถึงได้คือ terminal ที่ไม่ได้ส่งมอบงาน (ดู supersedable) · COMPLETED อ้างไม่ได้ (rfcs/0007 Amendment 2)
       - job ไม่เข้า FAILED เพราะ execution เดียวล้ม — orchestration ต้อง exhaust retry ก่อน
       - AWAITING_APPROVAL คนละอย่างกับ GOVERNANCE_ANALYSIS — อันหลังคือประตูก่อนเริ่มงาน
       - FAILED · CANCELLED · TIMED_OUT ต้องมี reason metadata
-      - job ที่ยังไม่ผ่าน APPROVED เข้า FAILED ไม่ได้ — recovery ด้วย supersedes_job_id จะไม่มีอะไรให้ supersede (rfcs/0010)
+      - job ที่ยังไม่ผ่าน APPROVED เข้า FAILED ไม่ได้ — ยังไม่มีงานให้ล้ม ผลลัพธ์ที่ซื่อสัตย์คือ REJECTED / CANCELLED / TIMED_OUT (rfcs/0010)
       - approval ที่เลย expires_at แล้วใช้เดินงานต่อไม่ได้ — engine ปฏิเสธ ไม่ใช่ปล่อยผ่าน · job ที่ค้างอยู่เข้า TIMED_OUT ได้ (rfcs/0007 Amendment 1)
       - REQUIRE_CHANGES กับ REJECT จบที่ DRAFT เหมือนกันแต่คนละเส้นทาง — REJECT ผ่าน REJECTED ส่วน REQUIRE_CHANGES ข้าม · แยกกันที่ trail ไม่ใช่แค่ที่ decision record (rfcs/0011)
       - คำถามว่า transition นี้เป็นคำตัดสินไหม ต้องอ่านที่ edge ไม่ใช่ที่ปลายทาง — REJECTED → DRAFT ไม่ใช่คำตัดสิน (rfcs/0011)

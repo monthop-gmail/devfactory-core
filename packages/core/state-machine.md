@@ -39,6 +39,9 @@ AWAITING_APPROVAL   → <awaiting_from> | FAILED
 
 Execution is forbidden before `APPROVED`.
 `FAILED` is terminal — recovery is a new job carrying `supersedes_job_id`, not a retry.
+So are `CANCELLED` and `TIMED_OUT`, and since
+[RFC-0007 Amendment 2](../../rfcs/0007-job-lifecycle-completeness.md#amendment-2--a-job-may-supersede-any-terminal-it-did-not-deliver-from-2026-08-20)
+a new job may point back at any of the three. See [Recovery](#recovery).
 
 `CANCELLED` is reachable from every non-terminal state.
 `TIMED_OUT` is reachable from `GOVERNANCE_ANALYSIS`, `APPROVED`, `TASK_PLANNING`,
@@ -121,9 +124,49 @@ authorised, including the way back out of a pause. What remains is a fresh `APPR
 [RFC-0007 Amendment 1](../../rfcs/0007-job-lifecycle-completeness.md#amendment-1--approved-may-time-out-2026-08-19)
 added the last of those so a job stalled in `APPROVED` has an honest terminal.
 
+Once it has settled there, *"ต้องขอใหม่"* is [Recovery](#recovery): a new job that names the
+timed-out one in `supersedes_job_id` and asks for approval again. Both halves of the rule
+`approval/v1` states are now reachable — the refusal and the way to ask again.
+
 Timeout **policy** — how long an approval is good for — is not set here. RFC-0007 and
 RFC-0010 both leave the values out of scope, so nothing in this repository supplies a
 default `expires_at` or fires a timeout on its own.
+
+## Recovery
+
+A terminal job is never woken. Trying again is a **new job** that records
+`supersedes_job_id` naming the one it replaces, starts at `DRAFT`, and passes
+`GOVERNANCE_ANALYSIS` again — RFC-0007 Decision 1. That re-approval is the guarantee, not
+the overhead: resuming the old job would continue under an `APPROVED` granted in a context
+that has since stopped holding.
+
+Which job may be named is `states.SUPERSEDABLE` — every terminal that settled **without
+delivering the work**:
+
+| predecessor | may be superseded | why |
+| --- | --- | --- |
+| `FAILED` | ✅ | the attempt broke |
+| `TIMED_OUT` | ✅ | the attempt ran out of time — including an approval that lapsed where it sat |
+| `CANCELLED` | ✅ | a principal stopped the attempt |
+| `COMPLETED` | ❌ | it delivered; what follows is new work, not another attempt at the same work |
+
+`FAILED` was the only one until
+[RFC-0007 Amendment 2](../../rfcs/0007-job-lifecycle-completeness.md#amendment-2--a-job-may-supersede-any-terminal-it-did-not-deliver-from-2026-08-20)
+(issue #21), which left the transition table alone and relaxed only who may be *referred
+to*. Before it, `approval/v1`'s *"ต้องขอใหม่"* had no way to be carried out with the chain
+intact: an approval that expires sends its job to `TIMED_OUT`, `TIMED_OUT` cannot reach
+`FAILED`, and so the job filed in its place was unlinked.
+
+```python
+expired.state                  # TIMED_OUT — the approval lapsed before planning began
+again = expired.supersede(job_id="job-007-next")
+again.state                    # DRAFT, holding no approval
+again.supersedes_job_id        # "job-007" — and it is in the JOB_CREATED event, so a
+                               # replay reads the chain back from the log alone
+```
+
+Superseding a `COMPLETED` job raises `InvalidTransition`, as does superseding a job that
+has not settled at all.
 
 ## AWAITING_APPROVAL
 
@@ -145,7 +188,7 @@ definitions:
 | `workspace_id` | ✅ | a job is always work inside one workspace |
 | `principal` | ✅ | who created the job |
 | `awaiting_from` | when `AWAITING_APPROVAL` | state to return to |
-| `supersedes_job_id` | when recovering | points at the `FAILED` job this replaces |
+| `supersedes_job_id` | when recovering | points at the settled job this attempt replaces — see [Recovery](#recovery) |
 
 ## Guarantees
 
