@@ -46,8 +46,8 @@ from .states import (
     DECISION_TARGET,
     POST_APPROVAL,
     TERMINAL,
-    TRANSITIONS,
     JobState,
+    reachable_from,
 )
 
 #: States whose entry requires reason metadata — RFC-0001 for FAILED, extended
@@ -199,12 +199,10 @@ class Job:
         """States reachable right now, including this job's return edge.
 
         ``AWAITING_APPROVAL``'s way back is ``awaiting_from``, which differs per
-        job and so cannot live in the static table.
+        job and so cannot live in the static table; ``states.reachable_from``
+        folds it in, and is the same call anything else reading the table makes.
         """
-        targets = set(TRANSITIONS[self._state])
-        if self._state is JobState.AWAITING_APPROVAL and self._awaiting_from is not None:
-            targets.add(self._awaiting_from)
-        return frozenset(targets)
+        return reachable_from(self._state, awaiting_from=self._awaiting_from)
 
     # ---- the engine --------------------------------------------------------
 

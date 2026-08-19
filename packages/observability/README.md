@@ -10,7 +10,7 @@ In memory for v0.1. No metrics backend, no dashboard — out of scope per the is
 and per [`CORE_BOUNDARY.md`](../../docs/governance/CORE_BOUNDARY.md).
 
 The `Event` type itself lives in `devfactory_core.events`, because the state machine
-emits events. This package owns **storage** and **intake**.
+emits events. This package owns **storage**, **intake**, and **replay**.
 
 ## Use
 
@@ -79,13 +79,59 @@ external by the fact of arriving here, whatever it claims about itself.
 Guessing a tenant is treated as worse than losing the event. A lost event is a visible
 gap; one tenant's activity written into another tenant's immutable trail is not.
 
+## Replay — RFC-0003
+
+`replay_job(events)` rebuilds a job from its trail alone; `replay_tenant(log, tenant)`
+does it for every job in one partition.
+
+```python
+from devfactory_observability import replay_job, replay_tenant
+
+seen = replay_job(log.read("acme", job_id="job-001"))
+seen.state                 # JobState.COMPLETED
+seen.awaiting_from         # where a paused job would return to
+seen.approval_decision_id  # the APPROVE it was executing under
+seen.history               # every transition, reconstructed
+```
+
+RFC-0003 lists *"enable replayable job history"* as a goal. This makes it checkable,
+and it is a **completeness proof** rather than a convenience: every `STATE_TRANSITION`
+names the state it left, so a replay holding a running state notices a record that is
+missing or out of order — which the engine cannot, having written them.
+
+It also re-checks the guarantees against what was actually written, by something that
+was not there when it happened. Every edge is validated against
+`devfactory_core.states.reachable_from`, the same call the engine makes, so there is
+no second transition table here to drift.
+
+| the trail | outcome |
+| --- | --- |
+| nothing to replay | `EmptyTrail` |
+| does not start at `JOB_CREATED` | `UnstartedTrail` |
+| a transition leaves a state the replay is not in | `BrokenTrail` |
+| records an edge `states.py` does not declare | `UndeclaredTransition` |
+| enters `APPROVED`/`REJECTED` with no matching decision | `UnauditedDecision` |
+| begins execution with no `APPROVE` before it | `UnauditedExecution` |
+| `COMPLETED` and `JOB_COMPLETED` disagree | `IncompleteSettlement` |
+| an unrecognised event type | **skipped** — `event/v1`: keep it, do not interpret it |
+| an external event | **skipped** — RFC-0008: another system is not an authority on our lifecycle |
+
+A trail truncated at the end is noticeable only for a job that completed, because
+`JOB_COMPLETED` is the one record that says a transition should have followed. Nothing
+says so for `FAILED`, `CANCELLED`, or `TIMED_OUT`, or for a job still in flight —
+closing that needs a per-job sequence number in `event/v1`, which is a contract change
+and not something replay can infer.
+
 ## Tests
 
 ```bash
 cd packages/observability
-python -m pytest                                # 59 tests
-python -m pytest --cov=devfactory_observability  # gate at 90%, currently 100%
+python -m pytest                                 # 89 tests
+python -m pytest --cov=devfactory_observability  # gate at 90%
 ```
+
+The end-to-end flows that exercise replay over whole journeys are
+[`simulation/`](../../simulation/) at the repository root — issue #7.
 
 Payload conformance against the pinned contracts is
 [`conformance/`](../../conformance/) at the repository root.

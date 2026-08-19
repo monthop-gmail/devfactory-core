@@ -108,6 +108,14 @@ definitions:
 - `APPROVED` requires an explicit governance decision, recorded and emitted.
 - `FAILED`, `CANCELLED`, and `TIMED_OUT` all require reason metadata.
 - `CANCELLED` records the cancelling principal.
+- The trail is complete enough to reconstruct the job from it —
+  `devfactory_observability.replay` rebuilds state, `awaiting_from`, the approval in
+  force, and the whole history from the events alone, and refuses a trail that has a
+  gap in it. This is what RFC-0010 anticipated when it noted that consumers can
+  validate transitions "against a declared table instead of inferring one": replay
+  checks every recorded edge against `states.reachable_from`, so nothing outside
+  `states.py` holds an opinion about the lifecycle. Driven end to end by
+  [`simulation/`](../../simulation/) — issue #7.
 
 ## Open questions
 

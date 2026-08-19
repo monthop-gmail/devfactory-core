@@ -84,7 +84,9 @@ is what makes *every APPROVE is auditable* hold.
 `Decision.as_payload()` renders a decision in `approval/v1` shape. Neither is validated
 here — owning a copy of the schema would be a parallel schema, which
 [RFC-0005](../../rfcs/0005-platform-contract-authority.md) Rule 4 forbids.
-`conformance/payload_check.py` validates both against the pinned contracts.
+`conformance/payload_check.py` validates both against the pinned contracts, and
+`devfactory_observability.replay` reads the trail back to check it can account for how
+the job got where it is — driven end to end by [`simulation/`](../../simulation/).
 
 ## Decisions
 

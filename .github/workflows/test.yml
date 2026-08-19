@@ -1,7 +1,8 @@
 name: test
 
 # The release gate ADR-0006 requires of a consumer: unit tests for both packages
-# plus payload conformance against the pinned contracts.
+# plus payload conformance against the pinned contracts. Issue #7 adds the
+# end-to-end flow simulation, which is the closing gate on milestone v0.1.
 #
 # A failing job here has to block the merge for this to be a gate rather than a
 # report. That needs branch protection with these checks marked required, which is
@@ -10,9 +11,19 @@ name: test
 on:
   push:
     branches: [main]
-    paths: ['packages/**', 'apps/**', 'conformance/**', '.github/workflows/test.yml']
+    paths:
+      - 'packages/**'
+      - 'apps/**'
+      - 'conformance/**'
+      - 'simulation/**'
+      - '.github/workflows/test.yml'
   pull_request:
-    paths: ['packages/**', 'apps/**', 'conformance/**', '.github/workflows/test.yml']
+    paths:
+      - 'packages/**'
+      - 'apps/**'
+      - 'conformance/**'
+      - 'simulation/**'
+      - '.github/workflows/test.yml'
   workflow_dispatch:
 
 permissions:
@@ -46,6 +57,29 @@ jobs:
       - name: Test observability
         working-directory: packages/observability
         run: python -m pytest --cov=devfactory_observability --cov-report=term-missing
+
+  simulation:
+    # Issue #7 — the end-to-end flow simulation. Runs both forms deliberately:
+    # the test suite is what fails a pull request, and the script is the
+    # deliverable the issue asks for, so a script that stopped running would be a
+    # regression the suite alone might not notice.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: pip install --no-cache-dir 'pytest>=8'
+
+      - name: End-to-end flow suite
+        run: python3 -m pytest simulation/tests
+
+      - name: End-to-end flow simulation
+        run: python3 simulation/e2e_flow.py
 
   conformance:
     # ADR-0006 requirement 2 — validate payloads the engine actually produces
