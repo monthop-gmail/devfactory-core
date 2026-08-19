@@ -89,7 +89,9 @@ answers that question, and both the engine and `devfactory_observability.replay`
 Guarantees the engine enforces, not just documents:
 
 - decisions are immutable — changing one's mind is a second decision citing the first
-  (`supersedes_decision_id`)
+  (`Decision.supersedes_decision_id`, rendered as `approval/v1`'s
+  `supersedes_approval_id`; ids keep our name in Python and take theirs on the wire,
+  exactly as `decision_id` → `approval_id` does — see `decision.WIRE_FIELD_NAMES`)
 - a decision lives in the same tenant and workspace as the job it decides about;
   a mismatch is rejected, never coerced
 - an agent may not `APPROVE` a job it is the principal for — *no agent has total

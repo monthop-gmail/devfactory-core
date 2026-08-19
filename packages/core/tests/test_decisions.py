@@ -13,6 +13,7 @@ import pytest
 
 from conftest import drive
 from devfactory_core import (
+    WIRE_FIELD_NAMES,
     Decision,
     DecisionType,
     Job,
@@ -531,6 +532,26 @@ def test_the_payload_uses_the_platforms_field_names(alice, reviewer, clock):
     assert "decision_id" not in payload
 
 
+def test_every_renamed_field_goes_out_under_the_platforms_name(alice, reviewer, clock):
+    """The rename map is data, so it can be checked rather than trusted.
+
+    Both directions: our attribute must exist on the record, and only their name may
+    appear in the payload. A map entry that names an attribute nobody has, or a
+    payload that ships both spellings, fails here rather than on the wire.
+    """
+    job = _at_the_gate(alice, clock)
+    first = job.reject(authority=reviewer, reason="no")
+    job.transition(JobState.DRAFT)
+    job.submit_for_governance()
+    record = job.approve(authority=reviewer, reason="yes")
+    payload = record.as_payload()
+
+    for ours, theirs in WIRE_FIELD_NAMES.items():
+        assert getattr(record, ours) is not None, f"nothing set for {ours}"
+        assert payload[theirs] == getattr(record, ours)
+        assert ours not in payload
+
+
 def test_the_event_carries_the_approval_payload(alice, reviewer, clock):
     job = _at_the_gate(alice, clock)
     record = job.approve(authority=reviewer, reason="ok")
@@ -541,7 +562,8 @@ def test_the_event_carries_the_approval_payload(alice, reviewer, clock):
 def test_unset_keys_are_omitted_rather_than_nulled(alice, reviewer, clock):
     """RFC-0008's rule against inventing a value holds for approvals too."""
     payload = _at_the_gate(alice, clock).approve(authority=reviewer, reason="ok").as_payload()
-    assert "supersedes_decision_id" not in payload
+    assert "supersedes_approval_id" not in payload
+    assert "supersedes_decision_id" not in payload   # nor under our internal name
 
 
 def test_the_citation_appears_once_there_is_something_to_cite(alice, reviewer, clock):
@@ -550,7 +572,9 @@ def test_the_citation_appears_once_there_is_something_to_cite(alice, reviewer, c
     job.transition(JobState.DRAFT)
     job.submit_for_governance()
     payload = job.approve(authority=reviewer, reason="yes").as_payload()
-    assert payload["supersedes_decision_id"] == first.decision_id
+    # approval/v1 v1.1.0's name for it — ours stays supersedes_decision_id.
+    assert payload["supersedes_approval_id"] == first.decision_id
+    assert "supersedes_decision_id" not in payload
 
 
 def test_decision_ids_are_unique_and_well_formed(alice, reviewer, clock):

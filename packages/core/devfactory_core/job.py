@@ -390,9 +390,12 @@ class Job:
             decided_at=self._clock(),
             expires_at=expires_at,
             # "Changing your mind is a new approval that cites the old one"
-            # (approval/v1). The citation is filled from this job's own history
-            # rather than left to the caller to remember — it points at a
-            # decision that really was made, so nothing is being fabricated.
+            # (approval/v1 — the citation rides the wire as supersedes_approval_id).
+            # It is filled from this job's own history rather than left to the caller
+            # to remember: that makes it point at a decision that really was made,
+            # about this job, in this tenant, which is four of the five invariants
+            # approval/v1 asks the producer to hold up. The fifth — no cycles — comes
+            # free from a freshly minted decision_id.
             supersedes_decision_id=(
                 supersedes_decision_id
                 if supersedes_decision_id is not None

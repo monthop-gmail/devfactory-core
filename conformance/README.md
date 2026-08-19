@@ -27,11 +27,17 @@ pointers, so this file runs the real engine and validates what comes out of it.
    pause, rejection and resubmission, recovery by supersession — plus inbound
    external events that no job caused.
 3. Validates every emitted payload against `event/v1`.
-4. Asserts the eight `event/v1` guarantees that JSON Schema cannot express:
+4. Checks that those approval payloads use `approval/v1`'s **field names** and not
+   names of ours. The schema leaves `additionalProperties` open, so a field we
+   invented validates in silence — the contract's own `properties` list is used as
+   the closed set the contract does not declare it to be. This is what would have
+   caught `supersedes_decision_id` still riding the wire after `approval/v1` v1.1.0
+   named the field `supersedes_approval_id`.
+5. Asserts the eight `event/v1` guarantees that JSON Schema cannot express:
    append-only, no silent state change, subject always answerable, `job_id` never
    fabricated, unresolvable tenant rejected at intake, external source preserved,
    no reasoning traces in an audit record, tenant partitions not mixed.
-5. Checks that every entry in `known_gaps` still has an issue and an unexpired date.
+6. Checks that every entry in `known_gaps` still has an issue and an unexpired date.
 
 Nothing in the scenario is hand-written to please the schema. If a payload does not
 conform, the fix is the code or an upstream issue — never the fixture.

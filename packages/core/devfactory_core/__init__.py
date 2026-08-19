@@ -4,7 +4,13 @@ Phase 1: the job state machine, in memory. See ``packages/core/state-machine.md`
 The governance decision interface it is gated by is ``decision.py`` — RFC-0002.
 """
 
-from .decision import Decision, DecisionType, Subject, new_decision_id
+from .decision import (
+    WIRE_FIELD_NAMES,
+    Decision,
+    DecisionType,
+    Subject,
+    new_decision_id,
+)
 from .errors import (
     CrossTenantDecision,
     DecisionStateMismatch,
@@ -35,6 +41,7 @@ __all__ = [
     "TERMINAL",
     "TRANSITIONS",
     "INTERNAL_SOURCE",
+    "WIRE_FIELD_NAMES",
     "CrossTenantDecision",
     "Decision",
     "DecisionStateMismatch",
