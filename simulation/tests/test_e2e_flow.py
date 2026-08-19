@@ -28,7 +28,7 @@ from devfactory_core.errors import (
     InvalidTransition,
     JobStateMachineError,
 )
-from devfactory_core.states import FAILABLE, POST_APPROVAL, TERMINAL
+from devfactory_core.states import DECISION_BY_EDGE, FAILABLE, POST_APPROVAL, TERMINAL
 from devfactory_observability import (
     BrokenTrail,
     EmptyTrail,
@@ -52,6 +52,7 @@ from simulation.flows import (
     main_line,
     never_approved,
     rejected_then_resubmitted,
+    require_changes_then_resubmitted,
     stalled_awaiting_approval,
 )
 
@@ -169,6 +170,115 @@ def test_a_rejection_does_not_leave_an_earlier_approval_behind(new, reviewer):
     assert replacement.approval is None
     with pytest.raises(InvalidTransition):
         replacement.transition(JobState.TASK_PLANNING)
+
+
+# ---- [2b] sent back for changes, RFC-0011 -----------------------------------
+# The same destination as a rejection, by a different route. Every test here is
+# about whether that route survives being written down and read back, because that
+# is the only thing keeping ``REQUIRE_CHANGES ไม่ใช่ REJECT`` true of the record.
+
+
+def test_require_changes_returns_to_draft_without_passing_rejected(new, reviewer):
+    job = require_changes_then_resubmitted(new, job_id="job-002d", authority=reviewer)
+    assert visited(job) == (
+        "DRAFT",
+        "GOVERNANCE_ANALYSIS",
+        "DRAFT",
+        "GOVERNANCE_ANALYSIS",
+        "APPROVED",
+        "TASK_PLANNING",
+    )
+    assert "REJECTED" not in visited(job)
+
+
+def test_the_two_ways_back_to_draft_leave_different_trails(new, reviewer):
+    """RFC-0011's load-bearing claim, on the two flows side by side."""
+    sent_back = require_changes_then_resubmitted(
+        new, job_id="job-002d", authority=reviewer
+    )
+    rejected = rejected_then_resubmitted(new, job_id="job-002", authority=reviewer)
+
+    assert sent_back.state is rejected.state is JobState.TASK_PLANNING
+    assert visited(sent_back) != visited(rejected)
+    assert "REJECTED" in visited(rejected)
+    assert "REJECTED" not in visited(sent_back)
+    # One hop to DRAFT rather than two: the gate sent it back itself.
+    assert len(sent_back.history) == len(rejected.history) - 1
+
+
+def test_replay_tells_the_two_apart_from_the_log_alone(new, reviewer):
+    """A reader who was not there has only the trail. It is enough."""
+    sent_back = replay_job(
+        require_changes_then_resubmitted(
+            new, job_id="job-002d", authority=reviewer
+        ).events
+    )
+    rejected = replay_job(
+        rejected_then_resubmitted(new, job_id="job-002", authority=reviewer).events
+    )
+    assert sent_back.state is rejected.state is JobState.TASK_PLANNING
+    assert JobState.REJECTED not in sent_back.states_visited
+    assert JobState.REJECTED in rejected.states_visited
+    assert sent_back.states_visited != rejected.states_visited
+
+
+def test_the_require_changes_decision_survives_the_round_trip(new, reviewer):
+    job = require_changes_then_resubmitted(new, job_id="job-002d", authority=reviewer)
+    seen = replay_job(job.events)
+    assert [d.decision.value for d in job.decisions] == ["REQUIRE_CHANGES", "APPROVE"]
+    assert list(seen.decision_ids) == [d.decision_id for d in job.decisions]
+    # The approval in force is the APPROVE, not the REQUIRE_CHANGES that preceded it.
+    assert seen.approval_decision_id == job.decisions[-1].decision_id
+
+
+def test_a_require_changes_leaves_no_approval_behind(new, reviewer):
+    job = new("job-002e")
+    job.submit_for_governance()
+    job.require_changes(authority=reviewer, reason="needs a test plan")
+    assert job.state is JobState.DRAFT
+    assert job.approval is None
+    job.submit_for_governance(reason="revised")
+    with pytest.raises(InvalidTransition):
+        job.transition(JobState.TASK_PLANNING)
+
+
+def test_a_trail_that_calls_a_require_changes_a_rejection_is_refused(new, reviewer):
+    """Forge the decision record and the edge no longer matches it.
+
+    The two halves check each other: the route says "sent back for changes" and the
+    record would say "rejected", so the trail contradicts itself and replay says so
+    rather than believing the record.
+    """
+    job = new("job-002g")
+    job.submit_for_governance()
+    job.require_changes(authority=reviewer, reason="needs a test plan")
+    forged = [
+        dataclasses.replace(
+            e,
+            metadata={
+                **e.metadata,
+                "approval": {**e.metadata["approval"], "decision": "REJECT"},
+            },
+        )
+        if e.type_value == "GOVERNANCE_DECISION"
+        else e
+        for e in job.events
+    ]
+    with pytest.raises(UnauditedDecision) as excinfo:
+        replay_job(forged)
+    assert excinfo.value.recorded == "REJECT"
+
+
+def test_resubmitting_after_a_rejection_needs_no_decision_of_its_own(new, reviewer):
+    """``REJECTED -> DRAFT`` shares a destination with a decision and is not one."""
+    job = new("job-002h")
+    job.submit_for_governance()
+    job.reject(authority=reviewer, reason="out of scope")
+    job.transition(JobState.DRAFT)
+    seen = replay_job(job.events)
+    assert seen.state is JobState.DRAFT
+    assert len(seen.decision_ids) == 1
+    assert [t.decision_id for t in seen.history] == [None, job.decisions[0].decision_id, None]
 
 
 # ---- [3] failure ------------------------------------------------------------
@@ -391,7 +501,7 @@ def test_the_direction_lock_is_a_backstop_on_replay_too(new, reviewer, monkeypat
     job.approve(authority=reviewer, reason="approved")
     job.transition(JobState.TASK_PLANNING)
 
-    monkeypatch.setattr(replay_module, "DECISION_BY_TARGET", {})
+    monkeypatch.setattr(replay_module, "DECISION_BY_EDGE", {})
     with pytest.raises(UnauditedExecution) as excinfo:
         replay_job(job.events)
     assert excinfo.value.state == "TASK_PLANNING"
@@ -409,12 +519,14 @@ def run(new, owner, reviewer, log):
             new, job_id="job-001b", authority=reviewer, pause_in=JobState.DEPLOYABLE
         ),
         rejected_then_resubmitted(new, job_id="job-002", authority=reviewer),
+        require_changes_then_resubmitted(new, job_id="job-002d", authority=reviewer),
         failed_at(new, job_id="job-003", authority=reviewer, state=JobState.IN_PROGRESS),
         never_approved(new, job_id="job-004"),
         cancelled_by_a_person(new, job_id="job-005", owner=owner),
         stalled_awaiting_approval(new, job_id="job-006", authority=reviewer),
     ]
-    jobs.append(jobs[3].supersede(job_id="job-003-next"))
+    failed = next(j for j in jobs if j.state is JobState.FAILED)
+    jobs.append(failed.supersede(job_id="job-003-next"))
     for job in jobs:
         log.extend(job.events)
     return jobs, log
@@ -438,16 +550,19 @@ def test_every_transition_points_at_an_event_that_is_really_in_the_log(run):
             assert event.transition.get("reason") == record.reason
 
 
-def test_every_decision_state_entry_is_accompanied_by_a_decision_event(run):
+def test_every_decision_edge_is_accompanied_by_a_decision_event(run):
+    """Read off ``states.py`` by edge, not by destination.
+
+    Since RFC-0011 the destination alone no longer says whether a transition was a
+    verdict: ``GOVERNANCE_ANALYSIS -> DRAFT`` is one and ``REJECTED -> DRAFT`` is
+    not, and this counts both correctly only by asking about the edge.
+    """
     jobs, _ = run
     for job in jobs:
-        entries = [
-            h
-            for h in job.history
-            if h.to_state in (JobState.APPROVED, JobState.REJECTED)
-        ]
+        entries = [h for h in job.history if (h.from_state, h.to_state) in DECISION_BY_EDGE]
         emitted = [e for e in job.events if e.type_value == "GOVERNANCE_DECISION"]
         assert len(entries) == len(emitted) == len(job.decisions), job.job_id
+        assert [h.decision_id for h in entries] == [d.decision_id for d in job.decisions]
 
 
 def test_the_whole_run_reaches_one_tenant_partition(run):

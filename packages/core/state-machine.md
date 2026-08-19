@@ -1,7 +1,8 @@
 # Job State Machine Spec
 
 Canonical states per [RFC-0001](../../rfcs/0001-job-state-machine.md) as amended by
-[RFC-0007](../../rfcs/0007-job-lifecycle-completeness.md).
+[RFC-0007](../../rfcs/0007-job-lifecycle-completeness.md) and
+[RFC-0011](../../rfcs/0011-require-changes-destination.md).
 
 ## States
 
@@ -26,7 +27,7 @@ Terminal: `COMPLETED` · `FAILED` · `CANCELLED` · `TIMED_OUT`
 
 ```text
 DRAFT               → GOVERNANCE_ANALYSIS
-GOVERNANCE_ANALYSIS → APPROVED | REJECTED
+GOVERNANCE_ANALYSIS → APPROVED | REJECTED | DRAFT
 APPROVED            → TASK_PLANNING
 REJECTED            → DRAFT
 TASK_PLANNING       → IN_PROGRESS
@@ -57,19 +58,33 @@ engine records it and emits `GOVERNANCE_DECISION` alongside the `STATE_TRANSITIO
 caused — an approval that leaves no record is not auditable, so there is no path to
 `APPROVED` that skips one.
 
-| decision | job goes to |
-| --- | --- |
-| `APPROVE` | `APPROVED` |
-| `REJECT` | `REJECTED` |
-| `REQUIRE_CHANGES` | **refused — `UnmappedDecision`** |
+| decision | job goes to | route |
+| --- | --- | --- |
+| `APPROVE` | `APPROVED` | `GOVERNANCE_ANALYSIS → APPROVED` |
+| `REJECT` | `REJECTED` | `GOVERNANCE_ANALYSIS → REJECTED → DRAFT` |
+| `REQUIRE_CHANGES` | `DRAFT` | `GOVERNANCE_ANALYSIS → DRAFT` |
 
-`REQUIRE_CHANGES` is part of the vocabulary (a closed set: dropping it would narrow
-the contract this repository publishes) and has no destination, because no RFC here
-says which state a job returned for changes lands in. `REJECTED` is ruled out by the
-invariant *"REQUIRE_CHANGES ไม่ใช่ REJECT"*; `DRAFT` needs a `GOVERNANCE_ANALYSIS →
-DRAFT` edge nothing declares; a fourteenth state is a lifecycle change. The engine
-refuses rather than guessing — see `states.DECISION_TARGET`, and
-[the open questions](#open-questions) below.
+### `REQUIRE_CHANGES` is not a `REJECT`, and the trail says so
+
+Both end in `DRAFT`. They are told apart by the **route**, which is in the audit log as
+`STATE_TRANSITION` records: a rejected job stands in `REJECTED` and its history says so
+forever, while a job sent back for changes never entered that state.
+
+That is what keeps `approval/v1`'s invariant — *"REQUIRE_CHANGES ไม่ใช่ REJECT — งานยัง
+มีชีวิตและกลับมายื่นใหม่ได้"* — checkable rather than merely stated. A reader holding only
+the transitions can tell them apart; so can a reader holding only the decisions; and the
+two halves check each other, so a `GOVERNANCE_DECISION` claiming `REJECT` on the direct
+`GOVERNANCE_ANALYSIS → DRAFT` hop is refused on replay rather than believed. See
+[RFC-0011](../../rfcs/0011-require-changes-destination.md).
+
+A `REQUIRE_CHANGES` clears the approval in force, exactly as a `REJECT` does — being told
+to make changes is not being told to proceed.
+
+One consequence worth reading twice: **whether a transition is a decision is a property
+of the edge, not of the destination.** `GOVERNANCE_ANALYSIS → DRAFT` is a
+`REQUIRE_CHANGES` and needs an authority and a reason; `REJECTED → DRAFT` is the revision
+step after a verdict already recorded and needs neither. `states.DECISION_BY_EDGE` is what
+answers that question, and both the engine and `devfactory_observability.replay` ask it.
 
 Guarantees the engine enforces, not just documents:
 
@@ -149,7 +164,10 @@ definitions:
 
 Recorded rather than answered — each needs an RFC, not a code change.
 
-- Where does `REQUIRE_CHANGES` send a job? Until an RFC says, the engine refuses it.
+- How many times may a job be sent back for changes? RFC-0011 sets no limit: each round
+  trip is recorded, so the loop is visible in the trail and boundable by policy, but a
+  retry counter in the state machine would be a policy value in the lifecycle.
+
 - May a *person* approve a job they filed? `approval/v1` and RFC-0002 both state the
   self-approval invariant about agents only, so the engine refuses agent
   self-approval and allows the human case. Widening it would make this engine

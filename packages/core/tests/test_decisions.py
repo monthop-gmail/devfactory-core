@@ -27,12 +27,19 @@ from devfactory_core.errors import (
     ExecutionBeforeApproval,
     IncompleteDecision,
     InvalidIdentifier,
+    InvalidTransition,
     SelfApproval,
     UnmappedDecision,
     WrongDecisionSubject,
 )
 from devfactory_core.identity import ID_PATTERN
-from devfactory_core.states import DECISION_BY_TARGET, DECISION_TARGET, TRANSITIONS
+from devfactory_core.states import (
+    DECISION_BY_EDGE,
+    DECISION_GATE,
+    DECISION_TARGET,
+    TRANSITIONS,
+    decision_for_edge,
+)
 
 
 @pytest.fixture
@@ -65,38 +72,144 @@ def test_all_three_decision_types_are_declared():
 
 def test_a_decision_only_moves_a_job_along_an_edge_that_already_exists():
     """A decision may not invent a transition — that would be a lifecycle change."""
-    declared = TRANSITIONS[JobState.GOVERNANCE_ANALYSIS]
+    declared = TRANSITIONS[DECISION_GATE]
     assert set(DECISION_TARGET.values()) <= set(declared)
-    assert DECISION_BY_TARGET == {t: d for d, t in DECISION_TARGET.items()}
+    assert DECISION_BY_EDGE == {
+        (DECISION_GATE, t): d for d, t in DECISION_TARGET.items()
+    }
 
 
-def test_require_changes_is_declared_but_has_no_destination():
-    """Declared because the vocabulary is closed; unmapped because no RFC says where."""
-    assert DecisionType.REQUIRE_CHANGES not in DECISION_TARGET
+def test_every_declared_decision_has_a_destination():
+    """RFC-0011 closed the last gap — the vocabulary and the table now agree."""
+    assert set(DECISION_TARGET) == set(DecisionType)
 
 
-def test_require_changes_is_refused_and_says_why(alice, reviewer, clock):
+def test_require_changes_sends_a_job_back_to_draft(alice, reviewer, clock):
+    """RFC-0011. Not a rejection, and not a fourteenth state — back to DRAFT."""
+    assert DECISION_TARGET[DecisionType.REQUIRE_CHANGES] is JobState.DRAFT
+
     job = _at_the_gate(alice, clock)
-    before = len(job.events)
-    with pytest.raises(UnmappedDecision) as excinfo:
-        job.decide(DecisionType.REQUIRE_CHANGES, authority=reviewer, reason="needs tests")
-    assert "RFC" in str(excinfo.value)
-    # A refusal leaves the job exactly as it was — no state, no record, no event.
-    assert job.state is JobState.GOVERNANCE_ANALYSIS
-    assert job.decisions == ()
-    assert len(job.events) == before
+    record = job.decide(
+        DecisionType.REQUIRE_CHANGES, authority=reviewer, reason="add a test plan"
+    )
+    assert job.state is JobState.DRAFT
+    assert record.decision is DecisionType.REQUIRE_CHANGES
+    assert job.decisions == (record,)
+    assert job.history[-1].decision_id == record.decision_id
+    assert (job.history[-1].from_state, job.history[-1].to_state) == (
+        JobState.GOVERNANCE_ANALYSIS,
+        JobState.DRAFT,
+    )
 
 
-def test_require_changes_is_refused_by_its_string_form_too(alice, reviewer, clock):
+def test_require_changes_works_by_its_string_form_too(alice, reviewer, clock):
     job = _at_the_gate(alice, clock)
-    with pytest.raises(UnmappedDecision):
-        job.decide("REQUIRE_CHANGES", authority=reviewer, reason="needs tests")
+    job.decide("REQUIRE_CHANGES", authority=reviewer, reason="needs tests")
+    assert job.state is JobState.DRAFT
+
+
+def test_require_changes_has_a_named_method_like_the_other_two(alice, reviewer, clock):
+    job = _at_the_gate(alice, clock)
+    record = job.require_changes(authority=reviewer, reason="add a test plan")
+    assert record.decision is DecisionType.REQUIRE_CHANGES
+    assert job.state is JobState.DRAFT
+
+
+def test_require_changes_leaves_the_job_alive_and_resubmittable(alice, reviewer, clock):
+    """``approval/v1``: "งานยังมีชีวิตและกลับมายื่นใหม่ได้"."""
+    job = _at_the_gate(alice, clock)
+    job.require_changes(authority=reviewer, reason="add a test plan")
+    job.submit_for_governance(reason="test plan added")
+    job.approve(authority=reviewer, reason="the changes asked for are in")
+    assert job.state is JobState.APPROVED
+    assert job.decisions[-1].supersedes_decision_id == job.decisions[0].decision_id
+
+
+def test_require_changes_clears_the_approval_like_a_reject_does(alice, reviewer, clock):
+    """Being told to make changes is not being told to proceed — RFC-0011."""
+    job = _at_the_gate(alice, clock)
+    job.approve(authority=reviewer, reason="first pass")
+    job.transition(JobState.TASK_PLANNING)
+    job.fail(reason="the approved plan does not work")
+
+    revised = job.supersede(job_id="job-001b")
+    revised.submit_for_governance(reason="revised plan")
+    revised.require_changes(authority=reviewer, reason="still needs a test plan")
+    assert revised.approval is None
+    revised.submit_for_governance(reason="test plan added")
+    with pytest.raises(InvalidTransition):
+        revised.transition(JobState.TASK_PLANNING)
+
+
+def test_require_changes_and_reject_end_in_the_same_place_by_different_routes(
+    alice, reviewer, clock
+):
+    """RFC-0011's load-bearing claim: the destination is shared, the trail is not.
+
+    This is the whole reason ``REQUIRE_CHANGES -> DRAFT`` does not collapse into
+    ``REJECT``. Read the two histories back and one of them stood in ``REJECTED``.
+    """
+    sent_back = _at_the_gate(alice, clock)
+    sent_back.require_changes(authority=reviewer, reason="add a test plan")
+
+    rejected = _at_the_gate(alice, clock, job_id="job-002")
+    rejected.reject(authority=reviewer, reason="out of scope")
+    rejected.transition(JobState.DRAFT)
+
+    assert sent_back.state is rejected.state is JobState.DRAFT
+    assert [h.to_state for h in sent_back.history] == [
+        JobState.GOVERNANCE_ANALYSIS,
+        JobState.DRAFT,
+    ]
+    assert [h.to_state for h in rejected.history] == [
+        JobState.GOVERNANCE_ANALYSIS,
+        JobState.REJECTED,
+        JobState.DRAFT,
+    ]
+    assert JobState.REJECTED not in [h.to_state for h in sent_back.history]
+
+
+def test_resubmitting_after_a_rejection_is_not_itself_a_decision(alice, reviewer, clock):
+    """``REJECTED -> DRAFT`` shares its destination with a decision and is not one.
+
+    If it were read as one it would need an authority, and a replay would demand a
+    ``GOVERNANCE_DECISION`` for a verdict nobody made.
+    """
+    job = _at_the_gate(alice, clock)
+    job.reject(authority=reviewer, reason="out of scope")
+    before = len(job.decisions)
+    job.transition(JobState.DRAFT)  # no authority, no reason, and that is correct
+    assert decision_for_edge(JobState.REJECTED, JobState.DRAFT) is None
+    assert len(job.decisions) == before
+    assert job.history[-1].decision_id is None
 
 
 def test_a_decision_outside_the_vocabulary_is_not_invented(alice, reviewer, clock):
     job = _at_the_gate(alice, clock)
     with pytest.raises(ValueError):
         job.decide("AUTO_APPROVE", authority=reviewer, reason="looks fine")
+
+
+def test_a_decision_type_with_no_destination_is_refused_not_guessed(
+    alice, reviewer, clock, monkeypatch
+):
+    """``UnmappedDecision`` has no caller today, and still has a job.
+
+    A future RFC adding a fourth decision type has to declare its edge and its
+    destination together. If it declares only the value, this is what it meets —
+    a refusal that says so, rather than a ``KeyError`` from inside the engine.
+    """
+    from devfactory_core import job as job_module
+
+    job = _at_the_gate(alice, clock)
+    monkeypatch.setattr(job_module, "DECISION_TARGET", {})
+    before = len(job.events)
+    with pytest.raises(UnmappedDecision) as excinfo:
+        job.approve(authority=reviewer, reason="fine")
+    assert "DECISION_TARGET" in str(excinfo.value)
+    assert job.state is JobState.GOVERNANCE_ANALYSIS
+    assert job.decisions == ()
+    assert len(job.events) == before
 
 
 # ---- the decision record ---------------------------------------------------

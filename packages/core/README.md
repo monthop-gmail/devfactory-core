@@ -3,8 +3,9 @@
 The job state machine and the governance decision interface that gates it.
 
 Spec: [`state-machine.md`](state-machine.md) — [RFC-0001](../../rfcs/0001-job-state-machine.md)
-as amended by [RFC-0007](../../rfcs/0007-job-lifecycle-completeness.md), with the tenant
-model from [RFC-0006](../../rfcs/0006-tenant-workspace-model.md) and decisions from
+as amended by [RFC-0007](../../rfcs/0007-job-lifecycle-completeness.md) and
+[RFC-0011](../../rfcs/0011-require-changes-destination.md), with the tenant model from
+[RFC-0006](../../rfcs/0006-tenant-workspace-model.md) and decisions from
 [RFC-0002](../../rfcs/0002-governance-decision-contract.md).
 
 In memory only. No persistence, no policy engine, no API. *Approval* is a decision by an
@@ -59,11 +60,10 @@ enforced, so the engine rejects rather than repairs.
 | any post-approval state under an approval past its `expires_at` | `ExpiredApproval` — it has to be granted again |
 | `FAILED` / `CANCELLED` / `TIMED_OUT` without a reason | `MissingReason` |
 | `CANCELLED` without a principal | `MissingPrincipal` |
-| `APPROVED` / `REJECTED` without an authority and reason | `MissingAuthority` |
+| a transition that *is* a decision, without an authority and reason | `MissingAuthority` — including `GOVERNANCE_ANALYSIS → DRAFT`, which is a `REQUIRE_CHANGES` |
 | pausing outside `IN_PROGRESS` / `VALIDATING` / `DEPLOYABLE` | `MissingApprovalContext` |
 | resuming into a state other than `awaiting_from` | `WrongResumeState` |
 | a malformed identifier | `InvalidIdentifier` — `identity/v1` `Id` form |
-| `decide(REQUIRE_CHANGES)` | `UnmappedDecision` — no RFC says where it sends a job |
 | a decision missing decision, reason, authority, or timestamp | `IncompleteDecision` |
 | an agent approving the job it is the principal for | `SelfApproval` |
 | a decision from another tenant or workspace | `CrossTenantDecision` — rejected, never coerced |
@@ -75,7 +75,7 @@ A refused call leaves the job untouched and writes nothing to the audit trail.
 ## Events
 
 Construction emits `JOB_CREATED`; every accepted transition emits `STATE_TRANSITION`;
-entering `APPROVED` or `REJECTED` also emits `GOVERNANCE_DECISION`; reaching
+an edge that *is* a governance decision also emits `GOVERNANCE_DECISION`; reaching
 `COMPLETED` also emits `JOB_COMPLETED`. There is no way to change state without going
 through `transition()`, which is what makes *no silent state change* hold rather than
 merely be documented — and no way to reach `APPROVED` without a decision record, which
@@ -98,9 +98,26 @@ job.decide(DecisionType.APPROVE, authority=bob, reason="scope agreed")  # == job
 job.decisions          # every decision made about this job, immutable, in order
 job.approval           # the APPROVE it executes under, or None
 
-job.decide(DecisionType.REQUIRE_CHANGES, authority=bob, reason="add tests")
-# UnmappedDecision: declared by RFC-0002, but no RFC says which state it sends a job to
+job.require_changes(authority=bob, reason="add tests")   # → DRAFT, RFC-0011
 ```
+
+All three of RFC-0002's decisions are executable.
+[RFC-0011](../../rfcs/0011-require-changes-destination.md) settled the last one:
+`REQUIRE_CHANGES` sends a job to `DRAFT` by the `GOVERNANCE_ANALYSIS → DRAFT` edge,
+clearing the approval on the way — being told to make changes is not being told to
+proceed.
+
+It stays distinguishable from a `REJECT`, which ends in the same place, by the **route**:
+a rejection goes `GOVERNANCE_ANALYSIS → REJECTED → DRAFT` and leaves `REJECTED` standing
+in the job's history forever, while a `REQUIRE_CHANGES` goes straight there and never
+enters that state. The distinction is in the trail, so a reader who was not present can
+make it from the log alone — which is what makes *"REQUIRE_CHANGES ไม่ใช่ REJECT"* a
+checked guarantee rather than a stated one.
+
+One thing to read carefully if you consume the lifecycle: **whether a transition is a
+decision is a property of the edge, not the destination.** `GOVERNANCE_ANALYSIS → DRAFT`
+is a `REQUIRE_CHANGES`; `REJECTED → DRAFT` is the ordinary revision step and is not a
+decision at all. Ask `states.decision_for_edge()`.
 
 ## Tests
 
