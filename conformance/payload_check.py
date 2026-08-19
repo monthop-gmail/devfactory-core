@@ -21,6 +21,9 @@ a record, and a ``REQUIRE_CHANGES`` sends the job back to ``DRAFT`` without its
 trail ever passing through ``REJECTED`` — RFC-0011, which is what keeps
 *"REQUIRE_CHANGES ไม่ใช่ REJECT"* true of the record and not only of the wording.
 
+Their *names* are checked too, because ``approval/v1`` leaves
+``additionalProperties`` open and so cannot reject a field we named ourselves.
+
 Usage::
 
     python3 conformance/payload_check.py            # fetch schemas, then validate
@@ -292,7 +295,64 @@ def check_payloads(log, validator, gaps: list[dict]) -> None:
         )
 
 
-def check_decisions(log, jobs, validator) -> None:
+def check_field_names(approvals: list[dict], approval_schema: dict) -> None:
+    """Do our approval payloads spell the fields the way ``approval/v1`` spells them?
+
+    JSON Schema will not answer this. ``approval/v1`` does not set
+    ``additionalProperties: false``, so a payload carrying an invented key — or a key
+    this repository named itself while waiting for the contract to grow one — passes
+    validation in silence. That silence is what let ``supersedes_decision_id`` ride the
+    wire for a day, and it would let the next one ride longer.
+
+    So the check is the contract's own property list, used as the closed set the
+    contract does not declare it to be. Anything outside it is ours, not theirs, and
+    has to be either renamed or registered as a gap.
+    """
+    allowed = set(approval_schema.get("properties") or ())
+    strangers: dict[str, int] = {}
+    for payload in approvals:
+        for key in payload:
+            if key not in allowed:
+                strangers[key] = strangers.get(key, 0) + 1
+    if strangers:
+        fail(
+            "field-names",
+            "field ที่ไม่มีใน approval/v1 (schema ไม่ปิด additionalProperties จึงยัง valid): "
+            + ", ".join(f"{k} ×{n}" for k, n in sorted(strangers.items())),
+        )
+    else:
+        ok(
+            "field-names",
+            f"{len(approvals)} approval ใช้ชื่อ field ของ approval/v1 ทั้งหมด "
+            f"— ไม่มี field ที่เราตั้งชื่อเอง",
+        )
+
+    # The positive half. The check above is satisfied by a payload that carries no
+    # citation at all, and "the link quietly stopped being sent" is the other way this
+    # rename could go wrong. approval/v1: "การเปลี่ยนใจคือ approval ใบใหม่ที่อ้างใบเดิม"
+    citing = [p for p in approvals if p.get("supersedes_approval_id")]
+    retired = [p for p in approvals if "supersedes_decision_id" in p]
+    if retired:
+        fail(
+            "field-names",
+            f"{len(retired)} approval ยังส่ง supersedes_decision_id — "
+            f"approval/v1 v1.1.0 ตั้งชื่อ field นี้ว่า supersedes_approval_id แล้ว",
+        )
+    elif citing:
+        ok(
+            "field-names",
+            f"{len(citing)} approval อ้างใบก่อนหน้าผ่าน supersedes_approval_id "
+            f"(approval/v1 v1.1.0)",
+        )
+    else:
+        fail(
+            "field-names",
+            "ไม่มี approval ใบไหนอ้างใบเดิมเลย — scenario มีการเปลี่ยนใจอยู่ "
+            "ถ้าไม่มี supersedes_approval_id แปลว่าลิงก์หายไประหว่างทาง",
+        )
+
+
+def check_decisions(log, jobs, validator, approval_schema) -> None:
     """RFC-0002 — the decisions this engine produced, judged by ``approval/v1``.
 
     Same rule as the events above: nothing is hand-written to please the schema.
@@ -324,6 +384,16 @@ def check_decisions(log, jobs, validator) -> None:
             )
     if real == 0:
         ok("approval", f"{len(decisions)} decision ผ่าน approval/v1")
+
+    # Valid is not the same as correctly named — see check_field_names.
+    check_field_names(
+        [
+            approval
+            for payload in decisions
+            if (approval := (payload.get("metadata") or {}).get("approval")) is not None
+        ],
+        approval_schema,
+    )
 
     # "ทุก APPROVE ต้อง auditable — ต้องมี event GOVERNANCE_DECISION คู่กันเสมอ"
     mismatched = [
@@ -628,17 +698,15 @@ def main() -> int:
         "https://schemas.agent-platform.internal/event/v1/event.schema.yaml",
         pinned["non_schema_keys"],
     )
-    approval_validator = build_validator(
-        schemas,
-        "https://schemas.agent-platform.internal/approval/v1/approval.schema.yaml",
-        pinned["non_schema_keys"],
-    )
+    approval_id = "https://schemas.agent-platform.internal/approval/v1/approval.schema.yaml"
+    approval_validator = build_validator(schemas, approval_id, pinned["non_schema_keys"])
+    approval_schema = as_json_schema(schemas[approval_id], pinned["non_schema_keys"])
 
     log, jobs, external = run_scenario()
     print(f"\n[1] payload ที่ระบบผลิตจริง — {len(log)} event จาก {len(jobs)} job")
     check_payloads(log, validator, pinned.get("known_gaps") or [])
     print("\n[2] คำตัดสินที่ระบบผลิตจริง — approval/v1 (RFC-0002)")
-    check_decisions(log, jobs, approval_validator)
+    check_decisions(log, jobs, approval_validator, approval_schema)
     print("\n[3] guarantee ที่ JSON Schema ตรวจไม่ได้")
     check_guarantees(log, jobs, external)
     print("\n[4] ช่องว่างที่รู้ตัว — ต้องมี issue และวันหมดอายุ")

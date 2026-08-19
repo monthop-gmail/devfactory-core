@@ -19,15 +19,17 @@ contracts:
 
 conformance:
   status: passing
-  last_verified: 2026-08-18
+  last_verified: 2026-08-19   # รันกับ pin 3a01ab9 (approval/v1 v1.1.0) — passed=20 FAIL=0
 
   # ADR-0006 บังคับ consumer 3 ข้อ — ครบแล้วทั้งสาม:
   #   1. manifest        ไฟล์นี้
   #   2. conformance test ใน CI ที่ validate payload จริง
   #                      conformance/payload_check.py — รัน scenario ผ่าน job state
-  #                      machine และ event log จริง แล้ว validate event 42 ตัว
-  #                      กับ event/v1 ที่ pin ไว้ และ decision 5 ใบกับ approval/v1
+  #                      machine และ event log จริง แล้ว validate event 56 ตัว
+  #                      กับ event/v1 ที่ pin ไว้ และ decision 8 ใบกับ approval/v1
   #                      · ไม่มี fixture ที่เขียนขึ้นเพื่อให้ schema ผ่าน
+  #                      · ตรวจ "ชื่อ" field ของ approval ด้วย เพราะ approval/v1 ไม่ได้ปิด
+  #                        additionalProperties — field ที่เราตั้งชื่อเองจึง valid เงียบ ๆ
   #   3. release gate    job `core` และ `conformance` ใน .github/workflows/test.yml
   #                      รันทุก PR
   #
@@ -39,7 +41,7 @@ conformance:
   # ตอบได้เสมอ · ไม่ปลอม job_id · reject tenant ที่ resolve ไม่ได้ · คง source
   # ของ external · ไม่เก็บ reasoning · tenant partition ไม่ปนกัน
 
-pinned_contracts_commit: 72635883c4ce0e8fa8ed2fd64c02cbc4d5616087   # conformance/pinned.yaml
+pinned_contracts_commit: 3a01ab9d0a68594463382b0ec618dc07ccf6408c   # conformance/pinned.yaml
 
 # ช่องว่างจาก consumer pilot ของ agent-platform และ RFC ที่ปิดแต่ละข้อ
 # รายละเอียดเต็ม: agent-platform/architecture/consumer-devfactory-core.md
@@ -95,11 +97,19 @@ remaining:
   - เปิด branch protection แล้วตั้ง check ของ workflow test เป็น required
     เพื่อให้ release gate บล็อกการ merge ได้จริง (ADR-0006 ข้อ 3)
   - end-to-end simulation (issue #7)
+  - Job.decide ยังรับ supersedes_decision_id ที่ caller ส่งมาเองโดยไม่ตรวจ 4 ข้อที่
+    approval/v1 v1.1.0 ฝากไว้กับผู้ผลิต (ใบที่อ้างต้องมีจริง · tenant เดียวกัน ·
+    subject เดียวกัน · ห้ามชี้ตัวเอง) — ทางเดิน default ทำครบอยู่แล้ว จึงยังไม่มี payload
+    ที่ผิด แต่ประตูนี้เปิดอยู่
 
 registration: conforming   # registered | conforming
 
 # ช่องว่างที่ค้างอยู่ฝั่ง contract ไม่ใช่ฝั่ง implementation
 # ตามแบบที่ care-agent-platform ทำ — บันทึกไว้ให้ platform เห็นโดยไม่ต้องมาถาม
+#
+# ข้อที่ปิดแล้วไม่ลบทิ้ง แต่ติด `status: resolved` ไว้แบบเดียวกับ blocking: ข้างบน
+# — เหตุผลที่เราเคยเบี่ยงจาก contract คือสิ่งที่คนอ่านโค้ดเก่าจะถามถึง
+# อ่านเฉพาะข้อที่ไม่มี status: resolved ถ้าอยากรู้ว่าตอนนี้ยังค้างอะไร
 gaps:
   - id: event-type-enum-closed
     issue: https://github.com/monthop-gmail/agent-platform/issues/17
@@ -119,9 +129,20 @@ gaps:
       approval/v1 มี guarantee ว่า "decision เป็น immutable · การเปลี่ยนใจคือ approval
       ใบใหม่ที่อ้างใบเดิม" แต่ schema ไม่มี field ให้ใส่การอ้างนั้นเลย — ทำตาม guarantee
       แล้วไม่มีที่เก็บผลลัพธ์
-    workaround: >-
-      ฝั่งเราใส่ field ชื่อ supersedes_decision_id ลงใน payload เอง
-      (Decision.as_payload · packages/core/devfactory_core/decision.py)
-      approval/v1 ไม่ได้ตั้ง additionalProperties: false จึงยัง validate ผ่าน
-      ถ้า agent-platform ตั้งชื่อ field นี้เองภายหลัง งานที่เหลือคือ rename ไม่ใช่ออกแบบใหม่
     severity: low
+    resolved_by: agent-platform#24 — approval/v1 v1.1.0 · field ชื่อ supersedes_approval_id
+    status: resolved   # ปิดแล้ว 2026-08-19 · pin ขยับเป็น 3a01ab9 ใน PR #23
+    note: >-
+      ระหว่างที่ยังไม่มี field ฝั่งเราใส่ชื่อของตัวเองคือ supersedes_decision_id ลงใน payload
+      (approval/v1 ไม่ได้ตั้ง additionalProperties: false จึงยัง validate ผ่าน) และเขียนไว้ว่า
+      ถ้า agent-platform ตั้งชื่อเอง งานที่เหลือคือ rename ไม่ใช่ออกแบบใหม่ — ผลออกมาตามนั้น
+      · เขาไม่ใช้ชื่อของเราเพราะค่าที่ใส่คือ approval_id จริง ๆ (decision เป็น enum ไม่มี id)
+      และคำว่า decision ชนกับผลประเมินของเครื่องใน policy/v1
+      · payload ฝั่งเราใช้ supersedes_approval_id แล้ว ส่วนชื่อใน Python ยังเป็น
+      supersedes_decision_id ตาม convention เดิม decision_id → approval_id (RFC-0005 Rule 1)
+      map อยู่ที่เดียวคือ decision.WIRE_FIELD_NAMES
+      · payload_check ตรวจชื่อ field ที่เราผลิตแล้ว — schema ยังไม่ปิด additionalProperties
+      ชื่อผิดจึงยัง validate ผ่านโดยไม่มีใครทัก
+      · invariant ที่ v1.1.0 ฝากไว้กับผู้ผลิต (ใบที่อ้างต้องมีจริง · tenant เดียวกัน ·
+      subject เดียวกัน · ห้ามชี้ตัวเอง · ห้ามเป็นวง) ทางเดินปกติของ Job.decide ทำครบ
+      แต่ถ้า caller ส่ง supersedes_decision_id เข้ามาเองยังไม่มีใครตรวจ — ดู remaining:
