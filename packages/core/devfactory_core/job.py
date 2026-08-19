@@ -26,6 +26,11 @@ An approval can also say when it stops being one. ``approval/v1`` carries
 ต้องขอใหม่"* — so the engine refuses to move a job into execution under a lapsed
 approval, and RFC-0007's 2026-08-19 amendment gives such a job somewhere honest to
 land by putting ``APPROVED`` in ``states.TIMEOUTABLE`` (issue #17).
+
+Asking again is :meth:`Job.supersede`, and since RFC-0007's Amendment 2 it works
+from every terminal that settled without delivering — ``states.SUPERSEDABLE`` —
+rather than from ``FAILED`` alone, so the second attempt at a job whose approval
+ran out can say what it is a second attempt at (issue #21).
 """
 
 from __future__ import annotations
@@ -57,6 +62,7 @@ from .states import (
     APPROVAL_PAUSABLE,
     DECISION_TARGET,
     POST_APPROVAL,
+    SUPERSEDABLE,
     TERMINAL,
     JobState,
     decision_for_edge,
@@ -454,17 +460,32 @@ class Job:
         return self.transition(JobState.TIMED_OUT, reason=reason, principal=principal)
 
     def supersede(self, *, job_id: str, principal: Principal | None = None) -> "Job":
-        """Create the replacement job for a FAILED one.
+        """Create the replacement job for one that settled without delivering.
 
         RFC-0007: recovery is a new job, not a revival. The replacement starts at
         DRAFT and passes GOVERNANCE_ANALYSIS again, which is the guarantee —
         resuming the old one would continue under an APPROVED granted to a plan
         that has since failed.
+
+        Amendment 2 widened *which* job may be pointed back at, from ``FAILED``
+        alone to every terminal in ``states.SUPERSEDABLE``. An approval that
+        lapses lands its job in ``TIMED_OUT``, and ``approval/v1`` answers that
+        with "ต้องขอใหม่"; asking again is this call, and before the amendment it
+        had no way to say what it was a second attempt at. ``COMPLETED`` is not in
+        the set: a job that delivered is not an attempt awaiting another one.
         """
-        if self._state is not JobState.FAILED:
-            raise InvalidTransition(
-                self._state.value, "supersede", ["only a FAILED job can be superseded"]
-            )
+        if self._state not in SUPERSEDABLE:
+            # Two refusals with the same shape and different reasons: one job has
+            # not finished trying, the other has nothing left to try.
+            if self._state is JobState.COMPLETED:
+                why = (
+                    "COMPLETED delivered its work — what follows it is new work, "
+                    "not another attempt at the same work"
+                )
+            else:
+                settled = ", ".join(sorted(s.value for s in SUPERSEDABLE))
+                why = f"a job is superseded once it has settled without delivering: {settled}"
+            raise InvalidTransition(self._state.value, "supersede", [why])
         return Job(
             job_id=job_id,
             tenant_id=self._tenant_id,

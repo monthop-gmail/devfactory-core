@@ -28,16 +28,22 @@ class InvalidTransition(JobStateMachineError):
 class TerminalState(JobStateMachineError):
     """A transition was requested out of a terminal state.
 
-    Recovery from FAILED is a new job carrying ``supersedes_job_id``, never a
-    transition out of it — RFC-0007 keeps FAILED terminal so that recovery has
-    to pass GOVERNANCE_ANALYSIS again rather than resume under a stale APPROVED.
+    Recovery from a terminal state is a new job carrying ``supersedes_job_id``,
+    never a transition out of it — RFC-0007 keeps these states terminal so that
+    recovery has to pass GOVERNANCE_ANALYSIS again rather than resume under a
+    stale APPROVED. Amendment 2 widened which of them may be recovered from;
+    ``COMPLETED`` is not one, because a job that delivered has nothing to recover.
     """
 
     def __init__(self, current: str) -> None:
         self.current = current
+        recovery = (
+            "There is nothing to recover — it delivered its work"
+            if current == "COMPLETED"
+            else "Recovery is a new job with supersedes_job_id"
+        )
         super().__init__(
-            f"{current} is terminal. Recovery is a new job with supersedes_job_id, "
-            f"not a transition out of {current}."
+            f"{current} is terminal. {recovery}, not a transition out of {current}."
         )
 
 

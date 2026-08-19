@@ -13,6 +13,9 @@ The six checks map one-to-one onto the issue's list::
    [2b] being sent back for changes — the same destination by a different route,
         which is what RFC-0011 rests on and so is checked rather than asserted
     [3] failure, from every state RFC-0010 allows and from nowhere else
+   [3c] an approval that ran out, and the asking-again that links back to it —
+        the other half of ``approval/v1``'s "ต้องขอใหม่", which RFC-0007
+        Amendment 2 made expressible (issue #21)
     [4] the governance gate — no execution without an APPROVE *record*
     [5] every transition leaves an audit event
     [6] the trail is complete and replays to the state the job is really in
@@ -52,6 +55,7 @@ from devfactory_core.errors import (  # noqa: E402
     ExecutionBeforeApproval,
     InvalidTransition,
     JobStateMachineError,
+    TerminalState,
 )
 from devfactory_core.states import (  # noqa: E402
     DECISION_BY_EDGE,
@@ -69,7 +73,7 @@ from devfactory_observability import (  # noqa: E402
 )
 from simulation.flows import (  # noqa: E402
     MAIN_LINE,
-    approval_expired,
+    approval_expired_then_resubmitted,
     cancelled_by_a_person,
     failed_at,
     happy_path,
@@ -390,6 +394,95 @@ def _park_in(job: Job, state: JobState, authority: Principal) -> None:
     job.approve(authority=authority, reason="approved")
 
 
+# ---- [3c] asking again after an approval ran out ----------------------------
+# RFC-0007 Amendment 2 (issue #21). ``approval/v1`` says an expired approval cannot
+# run work *and* has to be asked for again. Issue #17 built the refusal; this is the
+# asking, and the thing worth checking is that the second attempt is readable as a
+# second attempt from the log alone rather than looking like unrelated work.
+
+
+def check_asking_again(new, reviewer) -> list[Job]:
+    expired, again = approval_expired_then_resubmitted(
+        new,
+        job_id="job-007",
+        replacement_job_id="job-007-next",
+        authority=reviewer,
+        expires_at=datetime(2026, 8, 19, 8, tzinfo=timezone.utc),
+    )
+    check(
+        "again",
+        expired.state is JobState.TIMED_OUT and expired.approval_expired,
+        "ใบเดิมจบที่ TIMED_OUT เพราะ approval หมดอายุ",
+        f"ใบเดิมจบที่ {expired.state.value}",
+    )
+    check(
+        "again",
+        again.supersedes_job_id == expired.job_id
+        and visited(again)
+        == ("DRAFT", "GOVERNANCE_ANALYSIS", "APPROVED", "TASK_PLANNING"),
+        "ยื่นใหม่เป็น job ใหม่ที่ชี้กลับใบเดิม เริ่มที่ DRAFT และผ่านประตูอีกครั้ง",
+        f"ยื่นใหม่แล้วได้ {visited(again)} ชี้กลับ {again.supersedes_job_id}",
+    )
+    check(
+        "again",
+        again.approval is not None
+        and expired.approval is not None
+        and again.approval.decision_id != expired.approval.decision_id
+        and again.approval.expires_at is None,
+        "งานที่ยื่นใหม่เดินอยู่ใต้ APPROVE ใบใหม่ ไม่ใช่ใบที่หมดอายุไปแล้ว",
+        "งานที่ยื่นใหม่ไม่ได้ถือ APPROVE ใบใหม่",
+    )
+
+    # The predecessor is superseded, not revived — the whole reason Decision 1
+    # refuses to relax, and the half of it Amendment 2 deliberately did not touch.
+    try:
+        expired.transition(JobState.TASK_PLANNING)
+        fail("again", "ใบเดิมที่ TIMED_OUT ยังเดินต่อได้ — terminal ไม่ terminal จริง")
+    except TerminalState:
+        ok("again", "ใบเดิมยังเป็น terminal — ยื่นใหม่คือ job ใหม่ ไม่ใช่การปลุกใบเดิม")
+
+    # 🔑 The chain, read back by someone who was not there: from the replacement,
+    # follow supersedes_job_id until it runs out, and check where it lands.
+    trail = EventLog()
+    trail.extend(expired.events)
+    trail.extend(again.events)
+    seen = replay_tenant(trail, TENANT)
+    chain: list[str] = []
+    cursor: str | None = again.job_id
+    while cursor is not None and cursor not in chain:
+        chain.append(cursor)
+        cursor = seen[cursor].supersedes_job_id if cursor in seen else None
+    check(
+        "again",
+        chain == [again.job_id, expired.job_id]
+        and seen[expired.job_id].state is JobState.TIMED_OUT
+        and seen[again.job_id].approval_decision_id
+        != seen[expired.job_id].approval_decision_id,
+        f"replay อ่านสายโซ่ออกจาก audit log อย่างเดียว: {' → '.join(chain)} "
+        f"และเห็นว่าปลายสายจบที่ TIMED_OUT ด้วย approval คนละใบ",
+        f"replay อ่านสายโซ่ไม่ครบ: {chain}",
+    )
+
+    # COMPLETED is not in SUPERSEDABLE, and the refusal is checked rather than
+    # merely written down: a job that delivered is not an attempt awaiting another.
+    delivered = happy_path(new, job_id="job-007-done", authority=reviewer)
+    try:
+        delivered.supersede(job_id="job-007-done-again")
+        fail("again", "job ที่ COMPLETED ถูก supersede ได้ — สายโซ่เลิกแปลว่าความพยายาม")
+    except InvalidTransition:
+        ok("again", "COMPLETED supersede ไม่ได้ — งานที่ส่งมอบแล้วไม่ใช่ความพยายามที่รอลองใหม่")
+
+    still_running = new("job-007-live")
+    still_running.submit_for_governance()
+    try:
+        still_running.supersede(job_id="job-007-live-again")
+        fail("again", "job ที่ยังไม่จบถูก supersede ได้")
+    except InvalidTransition:
+        ok("again", "job ที่ยังไม่ settle supersede ไม่ได้ — ยังไม่มีความพยายามที่ใช้ไปแล้ว")
+
+    return [expired, again, delivered]
+
+
 # ---- [4] the governance gate ------------------------------------------------
 
 
@@ -614,23 +707,31 @@ def simulate(log: EventLog) -> list[Job]:
     print("\n[3] flow ล้มเหลว — FAILED จาก state ที่ RFC-0010 อนุญาตเท่านั้น")
     failures = check_failure_flow(new, reviewer)
 
+    print("\n[3c] approval หมดอายุแล้วยื่นใหม่ — สายโซ่ต้องไม่ขาด (rfcs/0007 Amendment 2)")
+    asked_again = check_asking_again(new, reviewer)
+
     print("\n[4] governance gate — ไม่มี APPROVE record ก็ไม่มี execution")
     gated = check_governance_gate(new, reviewer)
 
-    # Three flows this repository already exercised in conformance, kept in the run
-    # so the trail the replay checks work on covers every terminal state — and,
-    # since RFC-0007 Amendment 1, the APPROVED -> TIMED_OUT edge and an approval
-    # carrying an expires_at, which check [6] then has to reconstruct.
+    # Two flows this repository already exercised in conformance, kept in the run so
+    # the trail the replay checks work on covers every terminal state. The third —
+    # an approval that ran out where it sat — moved into check [3c], which now walks
+    # it to the end: since RFC-0007 Amendment 1 it produces the APPROVED -> TIMED_OUT
+    # edge and an approval carrying an expires_at for check [6] to reconstruct, and
+    # since Amendment 2 it also produces the supersession link out the other side.
     cancelled = cancelled_by_a_person(new, job_id="job-005", owner=owner)
     stalled = stalled_awaiting_approval(new, job_id="job-006", authority=reviewer)
-    expired = approval_expired(
-        new,
-        job_id="job-007",
-        authority=reviewer,
-        expires_at=datetime(2026, 8, 19, 8, tzinfo=timezone.utc),
-    )
 
-    jobs = [happy, rejected, sent_back, *failures, *gated, cancelled, stalled, expired]
+    jobs = [
+        happy,
+        rejected,
+        sent_back,
+        *failures,
+        *asked_again,
+        *gated,
+        cancelled,
+        stalled,
+    ]
     for job in jobs:
         log.extend(job.events)
     return jobs

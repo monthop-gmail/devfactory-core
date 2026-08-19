@@ -250,6 +250,44 @@ def approval_expired(
     return job
 
 
+def approval_expired_then_resubmitted(
+    new: JobFactory,
+    *,
+    job_id: str,
+    replacement_job_id: str,
+    authority: Principal,
+    expires_at: datetime,
+) -> tuple[Job, Job]:
+    """The other half of *"ต้องขอใหม่"* — asking again, with the link intact.
+
+    :func:`approval_expired` stops where issue #17 stopped: the approval lapsed and
+    the job settled in ``TIMED_OUT``. ``approval/v1`` does not stop there, and
+    until RFC-0007 Amendment 2 this repository had no way to carry out the rest of
+    the sentence — ``TIMED_OUT`` cannot reach ``FAILED``, and ``supersedes_job_id``
+    was reserved for ``FAILED``, so the job filed in its place was a stranger to
+    the one it replaced.
+
+    So this walks all the way to the end: the replacement names its predecessor,
+    re-enters at ``DRAFT``, passes the gate again, and only then executes. It
+    carries on into ``TASK_PLANNING`` for the reason
+    :func:`rejected_then_resubmitted` does — reaching execution is what proves the
+    *second* approval is doing the authorising, rather than the lapsed first one
+    somehow still being in force.
+
+    Returns both jobs, because the chain is the point and one end of it is not.
+    """
+    expired = approval_expired(
+        new, job_id=job_id, authority=authority, expires_at=expires_at
+    )
+    replacement = expired.supersede(job_id=replacement_job_id)
+    replacement.submit_for_governance(reason="asking again — the first approval expired")
+    replacement.approve(
+        authority=authority, reason="scope re-checked and still matches milestone v0.1"
+    )
+    replacement.transition(JobState.TASK_PLANNING)
+    return expired, replacement
+
+
 def stalled_awaiting_approval(
     new: JobFactory, *, job_id: str, authority: Principal
 ) -> Job:

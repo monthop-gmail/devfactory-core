@@ -204,7 +204,10 @@ signal of its own — remains open and this RFC does not settle it.
 ## Future Work
 
 - Whether a job sent back for changes should carry a pointer to the decision that sent it
-  back, the way `supersedes_job_id` points at a `FAILED` job. Today the link is
+  back, the way `supersedes_job_id` points at the job a new attempt replaces (written here
+  as "a `FAILED` job", which is what the field allowed until
+  [RFC-0007 Amendment 2](0007-job-lifecycle-completeness.md#amendment-2--a-job-may-supersede-any-terminal-it-did-not-deliver-from-2026-08-20)
+  widened it to every terminal that did not deliver). Today the link is
   reconstructible from the trail; making it a field would be an `approval/v1` change and
   therefore `agent-platform`'s.
 - Whether repeated `REQUIRE_CHANGES` rounds should be bounded, and by whom. Policy, not

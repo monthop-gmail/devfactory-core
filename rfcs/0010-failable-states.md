@@ -77,6 +77,16 @@ is that `FAILED` keeps meaning *approved work that did not succeed*, which is wh
 `supersedes_job_id` recovery path in RFC-0007 assumes. A `FAILED` job that never passed
 governance would have nothing coherent to supersede.
 
+> **Note added 2026-08-20.**
+> [RFC-0007 Amendment 2](0007-job-lifecycle-completeness.md#amendment-2--a-job-may-supersede-any-terminal-it-did-not-deliver-from-2026-08-20)
+> widened `supersedes_job_id` to every terminal that settled without delivering, so the
+> last sentence above no longer tells `FAILED` apart from the alternatives — a job
+> cancelled before approval is now a coherent thing to supersede. It was a supporting
+> remark, not the argument: this decision rests on `FAILED` meaning *approved work that
+> did not succeed*, which is unchanged, and Decision 1's rule that a job with no work
+> under way has nothing to fail stands exactly as written. The transition table is
+> untouched by that amendment.
+
 **Requirement that follows from accepting this.** `TIMED_OUT` must be distinguishable by cause.
 The terminal-state `reason` metadata — already mandatory under RFC-0001 — must record at least
 `sla_exceeded` versus `analysis_error` (carrying the underlying error for the latter). Without it
