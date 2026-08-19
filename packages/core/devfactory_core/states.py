@@ -179,5 +179,23 @@ def static_targets(state: JobState) -> frozenset[JobState]:
     return TRANSITIONS[state]
 
 
+def reachable_from(
+    state: JobState, *, awaiting_from: JobState | None = None
+) -> frozenset[JobState]:
+    """States reachable from ``state``, including the one dynamic edge.
+
+    ``AWAITING_APPROVAL``'s way back differs per job and so cannot be a row in
+    ``TRANSITIONS``. Folding it in here rather than at each call site means
+    "reading the table correctly" has one implementation: the engine asks this
+    before it moves a job, and a replay reading the trail back asks the same
+    thing before it believes a recorded edge. Neither gets to hold an opinion
+    about the lifecycle that this module does not already state.
+    """
+    targets = TRANSITIONS[state]
+    if state is JobState.AWAITING_APPROVAL and awaiting_from is not None:
+        return targets | {awaiting_from}
+    return targets
+
+
 def is_terminal(state: JobState) -> bool:
     return state in TERMINAL

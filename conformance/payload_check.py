@@ -40,7 +40,11 @@ import sys
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / "packages" / "core"), str(ROOT / "packages" / "observability")]
+sys.path[:0] = [
+    str(ROOT),
+    str(ROOT / "packages" / "core"),
+    str(ROOT / "packages" / "observability"),
+]
 
 PINNED = ROOT / "conformance" / "pinned.yaml"
 CACHE = ROOT / "conformance" / ".schema_cache"
@@ -136,63 +140,51 @@ def run_scenario():
     Six jobs across two tenants, covering every terminal state, the mid-run
     approval pause, rejection and resubmission, and recovery by supersession —
     plus two inbound external events that no job caused.
+
+    The journeys themselves are ``simulation/flows.py``, which issue #7 made the
+    one place they are written down. Two files describing the same lifecycle
+    differently is how they end up disagreeing about it, and this check exists to
+    catch disagreement rather than to add one.
     """
-    from devfactory_core import Job, JobState, Principal
+    from devfactory_core import JobState, Principal
     from devfactory_observability import EventLog, accept_external
+    from simulation.flows import (
+        cancelled_by_a_person,
+        failed_at,
+        happy_path,
+        job_factory,
+        rejected_then_resubmitted,
+        stalled_awaiting_approval,
+    )
 
     log = EventLog()
     owner = Principal("human", "alice", display_name="Alice")
     reviewer = Principal("human", "bob", display_name="Bob")
-    agent = Principal("agent", "planner-1", on_behalf_of=owner)
-
-    def new(job_id: str, tenant: str = "acme", workspace: str = "ws-core") -> Job:
-        return Job(
-            job_id=job_id, tenant_id=tenant, workspace_id=workspace, principal=owner
-        )
+    acme = job_factory(tenant_id="acme", workspace_id="ws-core", principal=owner)
+    globex = job_factory(
+        tenant_id="globex", workspace_id="ws-platform", principal=owner
+    )
 
     # 1. the happy path, with a mid-run approval pause before deploy
-    happy = new("job-001")
-    happy.submit_for_governance(reason="ready for review")
-    happy.approve(authority=reviewer, reason="scope matches milestone v0.1")
-    happy.transition(JobState.TASK_PLANNING)
-    happy.transition(JobState.IN_PROGRESS)
-    happy.transition(JobState.VALIDATING)
-    happy.transition(JobState.DEPLOYABLE)
-    happy.pause_for_approval(reason="deploy needs sign-off")
-    happy.resume(reason="signed off", principal=reviewer)
-    happy.transition(JobState.COMPLETED)
+    happy = happy_path(
+        acme, job_id="job-001", authority=reviewer, pause_in=JobState.DEPLOYABLE
+    )
 
     # 2. rejected, revised, resubmitted, approved
-    revised = new("job-002")
-    revised.submit_for_governance()
-    revised.reject(authority=reviewer, reason="missing risk analysis")
-    revised.transition(JobState.DRAFT)
-    revised.submit_for_governance(reason="risk analysis added")
-    revised.approve(authority=reviewer, reason="addressed")
+    revised = rejected_then_resubmitted(acme, job_id="job-002", authority=reviewer)
 
     # 3. failed, then superseded by a fresh job that re-enters governance
-    failed = new("job-003")
-    failed.submit_for_governance()
-    failed.approve(authority=reviewer, reason="approved")
-    failed.transition(JobState.TASK_PLANNING)
-    failed.transition(JobState.IN_PROGRESS)
-    failed.fail(reason="orchestration exhausted execution retries")
+    failed = failed_at(
+        acme, job_id="job-003", authority=reviewer, state=JobState.IN_PROGRESS
+    )
     replacement = failed.supersede(job_id="job-004", principal=owner)
     replacement.submit_for_governance(reason="retry with a different plan")
 
     # 4. cancelled by a person
-    cancelled = new("job-005")
-    cancelled.submit_for_governance()
-    cancelled.cancel(reason="superseded by an urgent request", principal=owner)
+    cancelled = cancelled_by_a_person(acme, job_id="job-005", owner=owner)
 
-    # 5. an approval nobody answered
-    stalled = new("job-006", tenant="globex", workspace="ws-platform")
-    stalled.submit_for_governance()
-    stalled.approve(authority=reviewer, reason="approved")
-    stalled.transition(JobState.TASK_PLANNING)
-    stalled.transition(JobState.IN_PROGRESS)
-    stalled.pause_for_approval(reason="needs a human before merge")
-    stalled.time_out(reason="approval request expired after 72h")
+    # 5. an approval nobody answered, in a second tenant
+    stalled = stalled_awaiting_approval(globex, job_id="job-006", authority=reviewer)
 
     jobs = [happy, revised, failed, replacement, cancelled, stalled]
     for job in jobs:
