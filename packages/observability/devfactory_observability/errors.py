@@ -86,6 +86,22 @@ class MalformedEventType(AuditLogError):
         )
 
 
+class MalformedSequence(AuditLogError):
+    """An inbound ``sequence`` that is not a position.
+
+    ``event/v1`` types it as an integer of at least 1. A value outside that is not
+    a smaller ordering claim, it is not an ordering claim at all — and the same
+    rule applies as everywhere else at this boundary: refuse it here rather than
+    write it into a record nobody can correct.
+    """
+
+    def __init__(self, value: object) -> None:
+        self.value = value
+        super().__init__(
+            f"sequence={value!r} is not a position — event/v1 requires an integer >= 1"
+        )
+
+
 class ExternalSourceRequired(AuditLogError):
     """An inbound external event did not say where it came from."""
 
