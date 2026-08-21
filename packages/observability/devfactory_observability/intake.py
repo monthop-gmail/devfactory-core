@@ -14,10 +14,16 @@ RFC-0008 rules, applied at the boundary and before anything is written:
 An unrecognised ``event_type`` is **not** malformed. ``event/v1`` tells consumers
 to keep such an event and skip interpreting it, so intake stores the type as the
 string it arrived as.
+
+A **malformed** one is a different thing and is refused. ``EventTypeName``
+constrains the shape of the name, not the set of values, so that a vocabulary
+which is allowed to grow still reads as a vocabulary. Unknown is a value we have
+not met; malformed is not a value at all.
 """
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any, Callable
 
@@ -27,6 +33,7 @@ from devfactory_core.identity import Principal, validate_id
 from .errors import (
     ExternalSourceRequired,
     FabricatedIdentifier,
+    MalformedEventType,
     MissingSubject,
     MissingTenant,
 )
@@ -35,6 +42,13 @@ from .errors import (
 #: system sending one of these means "I have no job", and RFC-0008 says that must
 #: be recorded as absence rather than passed through as a value.
 PLACEHOLDERS = frozenset({"", "-", "none", "null", "n/a", "na", "unknown", "0", "undefined"})
+
+#: Mirrors ``event/v1`` ``$defs.EventTypeName``. Held here for the same reason
+#: ``identity.ID_PATTERN`` is held there: intake has to refuse a malformed value
+#: before it reaches an immutable record, and the contract lives in another repo.
+#: It is the minimum needed to make that refusal, not a second copy of the schema
+#: — RFC-0005 Rule 4 forbids the latter.
+EVENT_TYPE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
 
 TenantResolver = Callable[[dict[str, Any]], str | None]
 
@@ -100,10 +114,12 @@ def accept_external(
     raw_type = payload.get("event_type")
     if not raw_type:
         raise MissingSubject("event_type is required")
+    if not EVENT_TYPE_PATTERN.match(str(raw_type)):
+        raise MalformedEventType(str(raw_type), EVENT_TYPE_PATTERN.pattern)
     try:
         event_type: EventType | str = EventType(raw_type)
     except ValueError:
-        # Rule: keep it, do not interpret it, do not fail.
+        # Unknown but well formed: keep it, do not interpret it, do not fail.
         event_type = str(raw_type)
 
     actor = payload.get("actor")

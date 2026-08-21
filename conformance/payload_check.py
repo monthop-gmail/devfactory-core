@@ -286,7 +286,10 @@ def check_payloads(log, validator, gaps: list[dict]) -> None:
                     f"{error.message} at {where}",
                 )
     if real == 0:
-        ok("payload", f"{total} event ผ่าน event/v1 (ยกเว้นช่องว่างที่รู้ตัว)")
+        # อย่าพูดถึงข้อยกเว้นเมื่อไม่มีข้อยกเว้น — ประโยคที่บอกว่า "ยกเว้น..."
+        # ตลอดเวลาทำให้คนอ่านเผลอคิดว่ามี waiver ทำงานอยู่ ทั้งที่ลิสต์ว่าง
+        caveat = " (ยกเว้นช่องว่างที่รู้ตัว)" if tolerated else ""
+        ok("payload", f"{total} event ผ่าน event/v1 ทุกตัว{caveat}")
     for gap_id, count in sorted(tolerated.items()):
         gap = next(g for g in gaps if g["id"] == gap_id)
         print(

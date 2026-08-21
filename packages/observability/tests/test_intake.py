@@ -10,6 +10,7 @@ from devfactory_core import EventType
 from devfactory_core.errors import InvalidIdentifier
 from devfactory_observability import (
     EventLog,
+    MalformedEventType,
     ExternalSourceRequired,
     FabricatedIdentifier,
     MissingSubject,
@@ -213,3 +214,59 @@ def test_a_datetime_passes_through(external, clock):
 def test_a_supplied_event_id_is_kept(external, clock):
     event = accept_external(external(event_id="abc123"), clock=clock)
     assert event.event_id == "abc123"
+
+
+# ---- unknown is kept · malformed is refused --------------------------------
+
+
+def test_a_well_formed_unknown_type_is_still_kept(external, clock):
+    """The rule that matters: not knowing a value is not a reason to refuse it."""
+    for name in ("SIGHTING_RECORDED", "MEDICATION_TAKEN", "GEOFENCE_CROSSED", "ABC"):
+        event = accept_external(external(event_type=name), clock=clock)
+        assert event.type_value == name
+        assert event.is_recognised is False
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "sighting recorded!!",  # spaces and punctuation
+        "lowercase",
+        "Mixed_Case",
+        "AB",  # shorter than the contract allows
+        "9START",  # must begin with a letter
+        "TRAILING-DASH",
+        "A" * 65,  # longer than the contract allows
+    ],
+    ids=repr,
+)
+def test_a_malformed_type_is_refused_at_intake(bad, external, clock):
+    """EventTypeName constrains the shape of the name, not the set of values.
+
+    Unknown is a value we have not met; malformed is not a value at all, and
+    RFC-0008 puts that refusal at the boundary rather than in the log.
+    """
+    with pytest.raises(MalformedEventType):
+        accept_external(external(event_type=bad), clock=clock)
+
+
+def test_the_refusal_names_the_contract_rule(external, clock):
+    with pytest.raises(MalformedEventType) as excinfo:
+        accept_external(external(event_type="not an event type"), clock=clock)
+    assert excinfo.value.value == "not an event type"
+    assert "EventTypeName" in str(excinfo.value)
+
+
+def test_every_type_we_emit_ourselves_is_well_formed():
+    """A rule that refused our own vocabulary would be the wrong rule."""
+    from devfactory_core import EventType
+    from devfactory_observability import EVENT_TYPE_PATTERN
+
+    assert all(EVENT_TYPE_PATTERN.match(t.value) for t in EventType)
+
+
+def test_a_malformed_type_never_reaches_the_log(external, clock):
+    log = EventLog()
+    with pytest.raises(MalformedEventType):
+        log.append(accept_external(external(event_type="bad type"), clock=clock))
+    assert len(log) == 0

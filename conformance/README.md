@@ -55,10 +55,23 @@ A gap is tolerated only when it names both the JSON path and the kind of event, 
 only until its expiry date — ADR-0006 forbids a permanent exception. Any failure
 that does not match both conditions turns the run red.
 
-Current gap: [`agent-platform#17`](https://github.com/monthop-gmail/agent-platform/issues/17) —
-`event/v1` `$defs.EventType` is still a closed enum, which contradicts its own
-`platform_rules` and the RFC-0009 amendment to ADR-0006 Rule 2. Found by this check
-on its first run.
+**There is no gap open right now**, and the empty list is the point rather than an
+oversight. A waiver left behind after its cause is fixed does not sit there
+harmlessly — it keeps swallowing any failure that matches its conditions, so the
+next real breakage at the same spot passes silently. That is the same false-green
+shape this repository has already been bitten by twice.
+
+The one that used to live here, [`agent-platform#17`](https://github.com/monthop-gmail/agent-platform/issues/17),
+was found by this check on its first run: `event/v1` `$defs.EventType` was a closed
+enum, contradicting its own `platform_rules` and the RFC-0009 amendment to ADR-0006
+Rule 2. It was fixed upstream on 2026-08-18 — `event_type` now refs `EventTypeName`,
+an open set constrained by shape — and retired here on 2026-08-21 once the pin
+carried the fix and nothing depended on the waiver any more.
+
+Why the gap history is not kept in this file: `known_gaps` is machinery, and a
+retired entry left in machinery still runs. The record of what we once deviated on
+and why belongs in `platform-contract.yaml` under `gaps:`, which is documentation and
+marks closed entries `status: resolved` instead of deleting them.
 
 ## Upgrading the pin
 

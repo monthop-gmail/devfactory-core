@@ -72,6 +72,23 @@ bad one would lose history that actually happened.
 | no `source.system` | `ExternalSourceRequired` |
 | unparseable `occurred_at` | `ValueError` — substituting our clock would misreport when it happened |
 | unrecognised `event_type` | **accepted and kept**, `is_recognised` is `False` |
+| malformed `event_type` | `MalformedEventType` — see below |
+
+### Unknown is kept; malformed is refused
+
+`event/v1` tells consumers to keep an `event_type` they do not recognise and skip
+interpreting it, and intake does exactly that — `SIGHTING_RECORDED` from `navi-ims`
+is stored whole. But `EventTypeName` constrains the *shape* of the name
+(`^[A-Z][A-Z0-9_]{2,63}$`) so that a vocabulary allowed to grow still reads as a
+vocabulary rather than as arbitrary text.
+
+Unknown is a value we have not met. Malformed is not a value at all, so it is
+refused at the boundary rather than written into a record nobody can correct.
+
+`EVENT_TYPE_PATTERN` mirrors the contract for the same reason `identity.ID_PATTERN`
+does: intake has to make the refusal and the contract lives in another repository.
+It is the minimum needed to refuse, not a second copy of the schema — RFC-0005
+Rule 4 forbids the latter.
 
 `source.kind` is forced to `external` rather than trusted: an inbound event is
 external by the fact of arriving here, whatever it claims about itself.

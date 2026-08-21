@@ -13,6 +13,7 @@ from .errors import (
     ExecutionAfterExpiry,
     ExternalSourceRequired,
     FabricatedIdentifier,
+    MalformedEventType,
     IncompleteSettlement,
     MissingSubject,
     MissingTenant,
@@ -22,11 +23,12 @@ from .errors import (
     UndeclaredTransition,
     UnstartedTrail,
 )
-from .intake import PLACEHOLDERS, accept_external
+from .intake import EVENT_TYPE_PATTERN, PLACEHOLDERS, accept_external
 from .replay import ReplayedJob, ReplayedTransition, replay_job, replay_tenant
 from .store import EventLog
 
 __all__ = [
+    "EVENT_TYPE_PATTERN",
     "PLACEHOLDERS",
     "AuditLogError",
     "BrokenTrail",
@@ -36,6 +38,7 @@ __all__ = [
     "ExecutionAfterExpiry",
     "ExternalSourceRequired",
     "FabricatedIdentifier",
+    "MalformedEventType",
     "IncompleteSettlement",
     "MissingSubject",
     "MissingTenant",
