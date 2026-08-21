@@ -45,6 +45,7 @@ from devfactory_observability import (
     UnauditedDecision,
     UnauditedExecution,
     UndeclaredTransition,
+    UnsettledTrail,
     UnstartedTrail,
     replay_job,
     replay_tenant,
@@ -115,9 +116,16 @@ def test_full_flow_reaches_completed(new, reviewer):
 
 
 def test_completion_is_announced_in_the_trail(new, reviewer):
+    """Both records, in this order — they answer different questions (RFC-0012).
+
+    ``JOB_COMPLETED`` says the work was delivered; ``JOB_SETTLED`` says the record
+    is finished, and closes every terminal rather than only this one.
+    """
     job = happy_path(new, job_id="job-001", authority=reviewer)
-    assert [e.type_value for e in job.events].count("JOB_COMPLETED") == 1
-    assert job.events[-1].type_value == "JOB_COMPLETED"
+    kinds = [e.type_value for e in job.events]
+    assert kinds.count("JOB_COMPLETED") == 1
+    assert kinds.count("JOB_SETTLED") == 1
+    assert kinds[-2:] == ["JOB_COMPLETED", "JOB_SETTLED"]
 
 
 def test_the_full_flow_survives_a_mid_run_approval_pause(new, reviewer):
@@ -773,28 +781,35 @@ def test_a_missing_completion_announcement_is_noticed(new, reviewer):
     assert excinfo.value.announced is False
 
 
-def test_a_trail_cut_short_at_a_terminal_other_than_completed_still_replays(
+def test_a_trail_cut_short_at_a_terminal_other_than_completed_is_now_caught(
     new, reviewer
 ):
-    """Recorded because it is a real limit, not because it is desirable.
+    """This test recorded the hole; RFC-0012 closed it, so it now records the fix.
 
-    Truncation is detectable only where something in the trail says more should
-    follow. Nothing does for ``FAILED``, so a trail that lost its last record
-    replays cleanly into the state before it. Closing that needs a per-job
-    sequence number in ``event/v1`` — a contract change, tracked in the report
-    for issue #7 rather than papered over here.
+    It used to assert that a ``FAILED`` trail missing its last record replayed
+    cleanly into the state before it, and predicted the fix would be a per-job
+    sequence number in ``event/v1``. **That prediction was wrong** — ADR-0015
+    established that a number carried on an event cannot say what number the last
+    event should have been, because that answer is not on any event. What closed
+    it was a closing record on every terminal, which needed no contract change at
+    all: ``event_type`` already refs an open set.
     """
     job = failed_at(
         new, job_id="job-003", authority=reviewer, state=JobState.IN_PROGRESS
     )
-    truncated = [e for e in job.events if e.transition is None or e.transition["to"] != "FAILED"]
-    assert replay_job(truncated).state is JobState.IN_PROGRESS
+    truncated = [e for e in job.events if e.type_value != "JOB_SETTLED"]
+    with pytest.raises(UnsettledTrail):
+        replay_job(truncated)
 
 
 def test_reordering_the_trail_breaks_the_replay(new, reviewer):
+    """Two transitions swapped — named rather than indexed, so the closing record
+    cannot quietly change what this test is swapping."""
     job = happy_path(new, job_id="job-001", authority=reviewer)
     events = list(job.events)
-    events[-2], events[-3] = events[-3], events[-2]
+    moves = [i for i, e in enumerate(events) if e.type_value == "STATE_TRANSITION"]
+    first, second = moves[-2], moves[-1]
+    events[first], events[second] = events[second], events[first]
     with pytest.raises(BrokenTrail):
         replay_job(events)
 

@@ -132,14 +132,26 @@ no second transition table here to drift.
 | begins execution with no `APPROVE` before it | `UnauditedExecution` |
 | begins execution after that `APPROVE`'s `expires_at` | `ExecutionAfterExpiry` |
 | `COMPLETED` and `JOB_COMPLETED` disagree | `IncompleteSettlement` |
+| settled in any terminal with no `JOB_SETTLED` | `UnsettledTrail` |
+| a closing record on a job that is still running | `PrematureSettlement` |
+| the closing record's `event_count` disagrees with the trail | `MiscountedTrail` |
 | an unrecognised event type | **skipped** — `event/v1`: keep it, do not interpret it |
 | an external event | **skipped** — RFC-0008: another system is not an authority on our lifecycle |
 
-A trail truncated at the end is noticeable only for a job that completed, because
-`JOB_COMPLETED` is the one record that says a transition should have followed. Nothing
-says so for `FAILED`, `CANCELLED`, or `TIMED_OUT`, or for a job still in flight —
-closing that needs a per-job sequence number in `event/v1`, which is a contract change
-and not something replay can infer.
+A trail truncated at the end used to be noticeable only for a job that completed,
+because `JOB_COMPLETED` was the one record saying something should have followed.
+[RFC-0012](../../rfcs/0012-terminal-closing-record.md) closed that: every terminal now
+emits `JOB_SETTLED` last, so `FAILED`, `CANCELLED`, and `TIMED_OUT` are checked the same
+way `COMPLETED` always was.
+
+The prediction recorded here before — that closing it needed a per-job sequence number
+in `event/v1` — was wrong, and worth keeping visible. ADR-0015 established that a number
+carried on an event cannot say what number the last event should have been, because that
+answer is not on any event. What closed it needed no contract change at all.
+
+**A job still in flight remains unverifiable this way**, and that is not an oversight:
+"complete" means "nothing missing up to the end", and a running trail has no end. That
+belongs to the store, where `digest()` already is the primitive.
 
 ## Tests
 

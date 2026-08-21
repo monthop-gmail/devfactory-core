@@ -82,10 +82,13 @@ stated one.
 
 Two limits, recorded rather than smoothed over:
 
-- **A truncated tail is only detectable for a job that completed.** `JOB_COMPLETED`
-  is what says a transition should have followed; nothing says so for `FAILED`,
-  `CANCELLED`, or `TIMED_OUT`, or for a job still in flight. Closing that needs a
-  per-job sequence number in `event/v1`, which is a contract change.
+- **~~A truncated tail is only detectable for a job that completed.~~** Closed by
+  [RFC-0012](../rfcs/0012-terminal-closing-record.md): every terminal emits
+  `JOB_SETTLED` last, so all four are checked alike. The prediction recorded here —
+  that it needed a per-job sequence number in `event/v1` — was wrong, and ADR-0015
+  said why: a number on an event cannot say what number the last event should have
+  been. **A job still in flight is still unverifiable**, and always will be at the
+  contract level; a running trail has no end to be complete up to.
 - **`UnauditedExecution` cannot fire on a table-consistent trail**, because
   `TASK_PLANNING` is reachable only from `APPROVED` and `APPROVED` is refused
   without a decision. It is a structural backstop, kept for the same reason

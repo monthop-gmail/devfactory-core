@@ -36,7 +36,11 @@ class EventType(str, Enum):
     which is noted below and is not enforced by this enum.
 
     Emitted by the job state machine (``packages/core``):
-        ``JOB_CREATED`` · ``STATE_TRANSITION`` · ``JOB_COMPLETED`` ·
+        ``JOB_CREATED`` · ``STATE_TRANSITION`` · ``JOB_COMPLETED`` · ``JOB_SETTLED``
+
+    ``JOB_COMPLETED`` and ``JOB_SETTLED`` answer different questions and a
+    successful job emits both — did the work get delivered, and is this trail
+    finished. RFC-0012 keeps them separate for that reason. ·
         ``GOVERNANCE_DECISION``
 
     ``GOVERNANCE_DECISION`` is emitted alongside the ``STATE_TRANSITION`` it
@@ -55,6 +59,7 @@ class EventType(str, Enum):
     EXECUTION_STARTED = "EXECUTION_STARTED"
     EXECUTION_FAILED = "EXECUTION_FAILED"
     JOB_COMPLETED = "JOB_COMPLETED"
+    JOB_SETTLED = "JOB_SETTLED"
 
 
 def new_event_id() -> str:

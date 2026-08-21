@@ -43,6 +43,8 @@ guarantees:
   - external event ต้องคง source ไว้
   - ห้ามเก็บ private reasoning / chain-of-thought เป็น audit record
   - event ที่ devfactory-core ส่งออกต้องมี job_id เสมอ
+  # rfcs/0012 — guarantee ของเราเอง ยังไม่ได้อยู่ใน event/v1 guarantees ของ platform
+  - ทุกการจบแบบ terminal ต้องออกใบปิดท้าย พร้อม event_count ที่ตรงกับ trail
 
 # ช่องว่างที่รู้ตัว — พร้อม issue อ้างอิงและเงื่อนไขที่แคบที่สุดเท่าที่จะแคบได้
 #
