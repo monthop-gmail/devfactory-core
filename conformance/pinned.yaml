@@ -46,18 +46,16 @@ guarantees:
 
 # ช่องว่างที่รู้ตัว — พร้อม issue อ้างอิงและเงื่อนไขที่แคบที่สุดเท่าที่จะแคบได้
 #
-# payload_check ยอมให้ failure ที่เข้าเงื่อนไขข้างล่างนี้เท่านั้นผ่านไปได้
-# failure อื่นทุกแบบทำให้ run แดง · การขยายรายการนี้ต้องมี issue ใหม่เสมอ
-known_gaps:
-  - id: event-type-enum-closed
-    issue: https://github.com/monthop-gmail/agent-platform/issues/17
-    detail: >-
-      event/v1 $defs.EventType เป็น enum ปิด 7 ค่า ซึ่งขัดกับ platform_rules
-      ของไฟล์เดียวกัน ("consumer ที่เจอ event_type ที่ไม่รู้จักต้องเก็บไว้
-      ห้าม drop ห้าม fail") และขัดกับ RFC-0009 ที่ ADR-0006 Rule 2 รับไปแล้ว
-      ว่า vocabulary เป็นชุดเปิด — schema ยังไม่ได้ implement การแก้นั้น
-    tolerated_when:
-      # แคบไว้ที่ 2 เงื่อนไขพร้อมกัน: ต้องเป็น event จากภายนอก และ error ต้องอยู่ที่ field นี้
-      source_kind: external
-      json_path: event_type
-    expires: "2026-11-18"   # ADR-0006 ห้ามยกเว้นถาวร
+# payload_check ยอมให้ failure ที่เข้าเงื่อนไขในลิสต์นี้เท่านั้นผ่านไปได้
+# failure อื่นทุกแบบทำให้ run แดง · การเพิ่มรายการต้องมี issue และวันหมดอายุเสมอ
+#
+# ⚠️ ลิสต์นี้เป็นของที่ทำงานจริง ไม่ใช่บันทึก — รายการที่ค้างอยู่หลังปัญหาถูกแก้แล้ว
+#    ไม่ได้เฉย ๆ มันยัง "กลืน" failure ที่ตรงเงื่อนไขต่อไป ทำให้ของใหม่ที่พังตรงจุดเดิม
+#    ผ่านไปเงียบ ๆ · เมื่อ issue ปิดและ pin ขยับถึงตัวแก้แล้ว ให้ถอดออกทันที
+#    ประวัติว่าเคยเบี่ยงเพราะอะไร เก็บที่ platform-contract.yaml `gaps:` ซึ่งเป็นบันทึก
+known_gaps: []
+# ว่างตั้งแต่ 2026-08-21 — event-type-enum-closed (agent-platform#17) ถอดออกแล้ว
+# เขาแก้ที่ schema ตั้งแต่ 2026-08-18: field event_type อ้าง EventTypeName (ชุดเปิด)
+# ไม่ได้อ้าง $defs.EventType (ชุดปิด) อีกต่อไป · pin ปัจจุบันมีตัวแก้นั้นแล้ว
+# ตรวจก่อนถอด: ไม่มี event สักตัวที่ต้องพึ่ง waiver นี้ และมันยังกลืน event_type
+# ที่ผิดรูปจริง ๆ ได้ (ทดสอบด้วย "sighting recorded!!" แล้วผ่านเป็นสีเขียว)

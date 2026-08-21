@@ -126,6 +126,16 @@ gaps:
       บันทึกเป็น known_gaps ใน conformance/pinned.yaml แคบไว้ที่ field event_type
       ของ event ที่ source.kind = external เท่านั้น · หมดอายุ 2026-11-18
     severity: low
+    resolved_by: agent-platform#17 — field event_type อ้าง EventTypeName (ชุดเปิด, pattern
+      ^[A-Z][A-Z0-9_]{2,63}$) แทน $defs.EventType (ชุดปิด) · $defs.EventType เก็บไว้ให้
+      consumer generate constant ของค่าที่ platform รับรองความหมาย
+    status: resolved   # ปิดที่ต้นทาง 2026-08-18 · ถอด waiver ออกจาก pinned.yaml 2026-08-21
+    note: >-
+      ตอนถอดพบว่า waiver ที่ค้างไว้ไม่ได้เฉย ๆ — มันยังกลืน event_type ที่ผิดรูปจริง
+      (ทดสอบด้วย "sighting recorded!!" จาก source ภายนอก แล้ว run ยังเขียว) เพราะเงื่อนไข
+      ของมันคือ "error ที่ field event_type ของ event ภายนอก" ซึ่งครอบทั้งค่าที่ไม่รู้จัก
+      และค่าที่ผิดรูป · จึงถอด waiver พร้อมกับให้ intake ปฏิเสธค่าที่ผิดรูปตั้งแต่ขอบ
+      (MalformedEventType) — "ไม่รู้จัก" ยังเก็บไว้ตาม event/v1 ส่วน "ผิดรูป" ไม่ใช่ค่า
 
   - id: approval-supersedes-field-missing
     issue: https://github.com/monthop-gmail/agent-platform/issues/22   # เปิดแล้ว 2026-08-19 (พบตอนทำ issue #5)

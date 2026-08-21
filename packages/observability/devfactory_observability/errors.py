@@ -63,6 +63,29 @@ class FabricatedIdentifier(AuditLogError):
         )
 
 
+class MalformedEventType(AuditLogError):
+    """An inbound ``event_type`` that does not have the shape of an event type.
+
+    Not the same refusal as an *unrecognised* type. ``event/v1`` tells consumers
+    to keep a type they do not know and skip interpreting it, and intake does
+    exactly that — ``SIGHTING_RECORDED`` from ``navi-ims`` is accepted and stored
+    whole. But ``EventTypeName`` constrains the *shape* of the name so that a
+    vocabulary which is allowed to grow still reads as a vocabulary rather than
+    as arbitrary text.
+
+    Unknown is a value we have not met. Malformed is not a value at all, and
+    RFC-0008 puts that refusal at the boundary rather than in the log.
+    """
+
+    def __init__(self, value: str, pattern: str) -> None:
+        self.value = value
+        self.pattern = pattern
+        super().__init__(
+            f"event_type={value!r} does not match event/v1 EventTypeName {pattern} — "
+            f"an unknown type is kept, a malformed one is refused at intake"
+        )
+
+
 class ExternalSourceRequired(AuditLogError):
     """An inbound external event did not say where it came from."""
 
