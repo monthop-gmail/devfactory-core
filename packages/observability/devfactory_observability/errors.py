@@ -184,6 +184,64 @@ class IncompleteSettlement(ReplayError):
         super().__init__(f"job {job_id}: {detail}")
 
 
+class UnsettledTrail(ReplayError):
+    """A job that reached a terminal state, with no closing record.
+
+    RFC-0012: every terminal emits ``JOB_SETTLED``. Its absence on a settled job
+    is the signature of a trail truncated at the end — the one truncation the
+    from→to chain cannot see, because nothing comes after the last record to
+    name the state it left.
+    """
+
+    def __init__(self, job_id: str, state: str) -> None:
+        self.job_id = job_id
+        self.state = state
+        super().__init__(
+            f"job {job_id}: settled in {state} with no JOB_SETTLED — "
+            f"the trail is truncated at the end, or was never closed"
+        )
+
+
+class PrematureSettlement(ReplayError):
+    """A closing record on a job that has not settled.
+
+    Either the trail is missing the transition that settled it, or something
+    closed a job that is still running. Both make the record a claim the trail
+    does not support.
+    """
+
+    def __init__(self, job_id: str, state: str) -> None:
+        self.job_id = job_id
+        self.state = state
+        super().__init__(
+            f"job {job_id}: carries JOB_SETTLED but the trail leaves it in {state}, "
+            f"which is not terminal"
+        )
+
+
+class MiscountedTrail(ReplayError):
+    """The closing record's ``event_count`` disagrees with the trail.
+
+    RFC-0012: the count is what catches a record missing anywhere, of any type.
+    The from→to chain only vouches for transitions, so a ``GOVERNANCE_DECISION``
+    that went missing is invisible to it — present here, absent there, and
+    nothing in between to notice.
+    """
+
+    def __init__(self, job_id: str, announced: int, actual: int) -> None:
+        self.job_id = job_id
+        self.announced = announced
+        self.actual = actual
+        missing = announced - actual
+        direction = (
+            f"{missing} record missing" if missing > 0 else f"{-missing} record too many"
+        )
+        super().__init__(
+            f"job {job_id}: JOB_SETTLED announces {announced} events, the trail holds "
+            f"{actual} — {direction}"
+        )
+
+
 class UndeclaredTransition(ReplayError):
     """The trail records an edge the lifecycle does not declare.
 

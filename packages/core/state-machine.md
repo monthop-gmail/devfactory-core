@@ -132,6 +132,44 @@ Timeout **policy** — how long an approval is good for — is not set here. RFC
 RFC-0010 both leave the values out of scope, so nothing in this repository supplies a
 default `expires_at` or fires a timeout on its own.
 
+## Trail closure
+
+Every job that settles emits **`JOB_SETTLED`** as its last record — `COMPLETED`,
+`FAILED`, `CANCELLED`, and `TIMED_OUT` alike ([RFC-0012](../../rfcs/0012-terminal-closing-record.md)).
+A successful job emits `JOB_COMPLETED` as well, because the two answer different
+questions: whether the work was delivered, and whether the record is finished.
+
+The reason there is no exception for `COMPLETED` is that an exception would put the
+burden on the reader to know which endings are special, and not knowing that is what
+this closes. Replay verifies a trail by having each record vouch for the one before
+it, which leaves the last record unvouched — so before this, only `COMPLETED` could
+be checked for truncation at the end, and `FAILED`, `CANCELLED`, and `TIMED_OUT`
+trails cut short replayed clean while reporting the state before the lost record.
+
+```json
+{ "event_type": "JOB_SETTLED",
+  "metadata": { "settled_as": "TIMED_OUT", "event_count": 9 } }
+```
+
+`event_count` counts every event carrying that **`job_id`**, the closing record
+included. Not by subject: `GOVERNANCE_DECISION` is about the approval and carries its
+own `subject_id`, while `replay_tenant` groups by `job_id` — so `job_id` is the scope
+where producer and reader count the same set.
+
+What the count adds is records that **no structural check asks for**. Transitions are
+vouched for by the next one, and a decision transition demands its `GOVERNANCE_DECISION`
+(`UnauditedDecision`); what neither notices is a record nothing demands — a forged or
+duplicated one, or a missing one of a type with no check of its own, which is what
+`TASK_ASSIGNED`, `EXECUTION_STARTED`, and `EXECUTION_FAILED` will be.
+
+Replay refuses three things it could not see before: `UnsettledTrail` (terminal with no
+closing record), `PrematureSettlement` (a closing record on a job still running), and
+`MiscountedTrail` (the count disagrees with the trail).
+
+**A trail that has not settled cannot be checked this way**, and nothing here pretends
+otherwise — "complete" means "nothing missing up to the end", and a running trail has
+no end. That belongs to the store, where `EventLog.digest()` already is the primitive.
+
 ## Recovery
 
 A terminal job is never woken. Trying again is a **new job** that records

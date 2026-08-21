@@ -564,6 +564,73 @@ def check_gap_expiry(gaps: list[dict], today: str) -> None:
             ok("gap", f"{gap['id']} ยังอยู่ในอายุ ถึง {expires} · {gap['issue']}")
 
 
+def check_trail_closure(log, jobs) -> None:
+    """RFC-0012 — every terminal emits a closing record, and the count is honest.
+
+    Checked against the trails the engine actually produced, not against a
+    fixture: the scenario settles jobs in all four terminals, and each has to
+    close itself.
+    """
+    from devfactory_core.states import TERMINAL
+
+    unsettled: list[str] = []
+    miscounted: list[str] = []
+    settled_kinds: set[str] = set()
+
+    for job in jobs:
+        trail = [e for e in job.events]
+        closing = [e for e in trail if e.type_value == "JOB_SETTLED"]
+        if job.state not in TERMINAL:
+            if closing:
+                miscounted.append(f"{job.job_id} ยังไม่ terminal แต่มีใบปิด")
+            continue
+        if not closing:
+            unsettled.append(job.job_id)
+            continue
+        if closing[-1] is not trail[-1]:
+            miscounted.append(f"{job.job_id} ใบปิดไม่ใช่ใบสุดท้าย")
+        record = closing[-1]
+        announced = (record.metadata or {}).get("event_count")
+        actual = sum(1 for e in trail if e.job_id == job.job_id)
+        if announced != actual:
+            miscounted.append(f"{job.job_id} ประกาศ {announced} จริง {actual}")
+        settled_kinds.add(str((record.metadata or {}).get("settled_as")))
+
+    if unsettled:
+        fail("closure", f"job ที่ terminal แต่ไม่มีใบปิดท้าย: {unsettled}")
+    elif miscounted:
+        fail("closure", f"ใบปิดท้ายไม่ตรงกับ trail: {miscounted}")
+    else:
+        settled = [j for j in jobs if j.state in TERMINAL]
+        ok(
+            "closure",
+            f"{len(settled)} job ที่จบแล้วมีใบปิดท้ายครบ และ event_count ตรงกับ trail",
+        )
+
+    # The point of RFC-0012 is that the rule has no exception in it, so the
+    # scenario has to exercise more than the terminal that already worked.
+    expected = {"COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT"}
+    missing = expected - settled_kinds
+    if missing:
+        fail("closure", f"scenario ยังไม่ครอบ terminal: {sorted(missing)}")
+    else:
+        ok("closure", "ครอบครบทั้ง 4 terminal — ไม่ใช่แค่ทางที่จบสำเร็จ")
+
+    # And the check has to be able to fail: truncate a real trail and see it caught.
+    from devfactory_observability import UnsettledTrail
+    from devfactory_observability.replay import replay_job
+
+    victim = next((j for j in jobs if j.state in TERMINAL), None)
+    if victim is None:
+        fail("closure", "scenario ไม่มี job ที่จบแล้วให้ทดสอบการตัดท้าย")
+        return
+    try:
+        replay_job(list(victim.events)[:-1])
+        fail("closure", f"ตัดใบท้ายของ {victim.job_id} แล้ว replay ยังผ่าน")
+    except UnsettledTrail:
+        ok("closure", f"trail ที่ถูกตัดท้ายถูกจับได้ ({victim.state.value})")
+
+
 def check_guarantees(log, jobs, external) -> None:
     # append-only: the digest of a prefix must not change as the log grows
     before = log.digest("acme")
@@ -710,9 +777,11 @@ def main() -> int:
     check_payloads(log, validator, pinned.get("known_gaps") or [])
     print("\n[2] คำตัดสินที่ระบบผลิตจริง — approval/v1 (RFC-0002)")
     check_decisions(log, jobs, approval_validator, approval_schema)
-    print("\n[3] guarantee ที่ JSON Schema ตรวจไม่ได้")
+    print("\n[3] ใบปิดท้ายของทุก terminal — RFC-0012")
+    check_trail_closure(log, jobs)
+    print("\n[4] guarantee ที่ JSON Schema ตรวจไม่ได้")
     check_guarantees(log, jobs, external)
-    print("\n[4] ช่องว่างที่รู้ตัว — ต้องมี issue และวันหมดอายุ")
+    print("\n[5] ช่องว่างที่รู้ตัว — ต้องมี issue และวันหมดอายุ")
     check_gap_expiry(pinned.get("known_gaps") or [], args.today)
 
     fails = [f for f in findings if f[0] == "FAIL"]

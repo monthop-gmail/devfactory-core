@@ -115,8 +115,8 @@ adopt it — but adoption is a decision for whoever owns that subject, not this 
 
 ## Decision 3 — The closing record carries `event_count`
 
-`JOB_SETTLED` carries, in `metadata`, the total number of events written for that
-subject **including itself**:
+`JOB_SETTLED` carries, in `metadata`, the total number of events carrying that
+**`job_id`**, including the closing record itself:
 
 ```json
 { "event_type": "JOB_SETTLED", "subject_type": "job", "subject_id": "job-001",
@@ -125,10 +125,21 @@ subject **including itself**:
 
 A reader with the trail checks `len(trail) == event_count`.
 
-This is worth the field because it catches strictly more than the from→to chain does.
-Chaining verifies transitions, so a missing `GOVERNANCE_DECISION` — not a transition,
-and not the last record either — passes today. A count notices any record missing
-anywhere in the trail, of any type.
+This is worth the field because it notices records that **no structural check asks
+for**. Chaining verifies transitions; other checks verify the records that a
+transition implies. What neither can see is a record nothing demands — an extra or
+forged one, or a missing one of a type that has no check of its own.
+
+> **Correction (implementation, 2026-08-21).** This paragraph originally cited a
+> missing `GOVERNANCE_DECISION` as the example, and that was wrong twice over.
+> Decision events carry `subject_type: approval` and their own `subject_id`, so a
+> subject-scoped count would not have covered them at all — the count is scoped by
+> `job_id`, which is the unit `replay_tenant` actually groups by. And the case is
+> already caught: `UnauditedDecision` fires when a decision transition has no
+> decision record before it. The count's real reach is stated above, and it grows
+> with the vocabulary: `TASK_ASSIGNED`, `EXECUTION_STARTED`, and `EXECUTION_FAILED`
+> have no structural check of their own and will be covered by nothing else when
+> orchestration begins emitting them.
 
 The cost is paid **once, by the producer, at close**, which is the difference that
 made this affordable where contiguous `sequence` was not: that would have serialised
@@ -207,7 +218,7 @@ and the reason the issue exists.
 
 | risk | severity | mitigation |
 | --- | --- | --- |
-| `event_count` disagrees with what a reader counts because the two count different sets | high | Defined precisely as events for that `tenant_id` and `subject_id`, including the closing record itself; the conformance scenario checks the equality it defines |
+| `event_count` disagrees with what a reader counts because the two count different sets | high | Defined as events carrying that `job_id`, including the closing record itself — the unit `replay_tenant` groups by, so producer and reader count the same set; the conformance scenario checks the equality it defines |
 | A reader treats `JOB_SETTLED` as success | medium | It carries `settled_as`; the type name says settled, not completed; `JOB_COMPLETED` keeps its meaning and its role |
 | Two records at `COMPLETED` read as duplication | low | They answer different questions, stated in Decision 1; the alternative is an exception in the rule |
 | `agent-platform` has not added `JOB_SETTLED` to `EventType` yet | low | Nothing blocks: `event_type` refs `EventTypeName`, an open set, so the payload validates before the enum entry exists. Adding it is additive on their side under RFC-0009 and needs no RFC here |

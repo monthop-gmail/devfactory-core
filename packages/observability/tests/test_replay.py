@@ -15,6 +15,9 @@ from devfactory_core import Event, EventType, JobState, Principal
 from devfactory_core.events import new_event_id, utc_now
 
 from devfactory_observability import (
+    MiscountedTrail,
+    PrematureSettlement,
+    UnsettledTrail,
     BrokenTrail,
     EmptyTrail,
     EventLog,
@@ -35,6 +38,27 @@ from devfactory_observability.replay import is_ours
 def approved(job, reviewer):
     job.submit_for_governance(reason="ready")
     job.approve(authority=reviewer, reason="approved")
+    return job
+
+
+def settled(job, reviewer, terminal: JobState):
+    """Drive a job to one terminal, by the shortest honest route to each."""
+    if terminal is JobState.CANCELLED:
+        job.cancel(reason="stopped by the owner", principal=reviewer)
+        return job
+    approved(job, reviewer)
+    job.transition(JobState.TASK_PLANNING)
+    job.transition(JobState.IN_PROGRESS)
+    if terminal is JobState.FAILED:
+        job.fail(reason="orchestration exhausted execution retries")
+    elif terminal is JobState.TIMED_OUT:
+        job.time_out(reason="sla exceeded")
+    elif terminal is JobState.COMPLETED:
+        job.transition(JobState.VALIDATING)
+        job.transition(JobState.DEPLOYABLE)
+        job.transition(JobState.COMPLETED)
+    else:  # pragma: no cover - guarded by the parametrise lists
+        raise AssertionError(f"settled() has no route to {terminal}")
     return job
 
 
@@ -552,3 +576,109 @@ def test_a_deadline_replay_cannot_read_is_treated_as_absent(recorded, make_job, 
     seen = replay_job(_recorded_expiry(job.events, recorded))
     assert seen.approval_expires_at is None
     assert seen.state is JobState.TASK_PLANNING
+
+
+# ---- end-of-trail checks, RFC-0012 -----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "terminal",
+    [JobState.COMPLETED, JobState.FAILED, JobState.CANCELLED, JobState.TIMED_OUT],
+    ids=lambda s: s.value,
+)
+def test_a_trail_truncated_at_the_end_is_caught_for_every_terminal(
+    terminal, make_job, reviewer
+):
+    """Before RFC-0012 only COMPLETED could be caught; the other three replayed clean."""
+    job = settled(make_job(), reviewer, terminal)
+    assert replay_job(job.events).state is terminal
+    with pytest.raises(UnsettledTrail):
+        replay_job(job.events[:-1])
+
+
+def test_the_settled_state_is_recovered(make_job, reviewer):
+    job = settled(make_job(), reviewer, JobState.TIMED_OUT)
+    assert replay_job(job.events).settled_as == "TIMED_OUT"
+
+
+def test_a_running_job_replays_with_no_settlement(make_job, reviewer):
+    job = approved(make_job(), reviewer)
+    assert replay_job(job.events).settled_as is None
+
+
+def test_a_closing_record_on_a_running_job_is_refused(make_job, reviewer):
+    """Either the settling transition is missing, or something closed a live job."""
+    job = settled(make_job(), reviewer, JobState.FAILED)
+    events = list(job.events)
+    without_the_transition = [
+        e
+        for e in events
+        if not (
+            e.type_value == "STATE_TRANSITION"
+            and (e.transition or {}).get("to") == "FAILED"
+        )
+    ]
+    with pytest.raises(PrematureSettlement):
+        replay_job(without_the_transition)
+
+
+def test_a_record_nothing_else_asks_for_is_caught_by_the_count(make_job, reviewer):
+    """The reach the count adds: a record no structural check demands.
+
+    Transitions are vouched for by the next one, and a decision transition
+    demands its GOVERNANCE_DECISION. A forged record of a type with no check of
+    its own is invisible to both.
+    """
+    from devfactory_core import EventType
+    from devfactory_core.events import Event, new_event_id
+
+    job = settled(make_job(), reviewer, JobState.FAILED)
+    events = list(job.events)
+    stray = Event(
+        event_id=new_event_id(),
+        event_type=EventType.TASK_ASSIGNED,
+        tenant_id=events[0].tenant_id,
+        subject_type="job",
+        subject_id=job.job_id,
+        occurred_at=events[-1].occurred_at,
+        job_id=job.job_id,
+    )
+    with pytest.raises(MiscountedTrail) as excinfo:
+        replay_job(events[:-1] + [stray, events[-1]])
+    assert excinfo.value.announced == len(events)
+    assert excinfo.value.actual == len(events) + 1
+
+
+def test_todays_vocabulary_has_nothing_the_count_alone_would_miss(make_job, reviewer):
+    """Worth stating: the *missing* direction is covered by other checks today.
+
+    Drop any record from a normal trail and something else fires first — a
+    transition breaks the chain, a decision record is demanded by the transition
+    it authorises, JOB_COMPLETED by COMPLETED, JOB_SETTLED by the terminal. So
+    the count's reach today is the *extra* direction, and the missing direction
+    becomes its own once orchestration emits types no check demands.
+    """
+    job = settled(make_job(), reviewer, JobState.FAILED)
+    events = list(job.events)
+    for dropped in range(1, len(events)):
+        with pytest.raises(ReplayError):
+            replay_job(events[:dropped] + events[dropped + 1 :])
+
+
+def test_the_count_error_says_which_direction():
+    """Both directions of the message, unit-tested — one has no trail to build yet."""
+    assert "1 record missing" in str(MiscountedTrail("job-1", announced=9, actual=8))
+    assert "1 record too many" in str(MiscountedTrail("job-1", announced=8, actual=9))
+
+
+def test_replay_tenant_settles_every_job_it_returns(make_job, reviewer):
+    a = settled(make_job(job_id="job-001"), reviewer, JobState.COMPLETED)
+    b = settled(make_job(job_id="job-002"), reviewer, JobState.FAILED)
+    log = EventLog()
+    log.extend(a.events)
+    log.extend(b.events)
+    replayed = replay_tenant(log, a.tenant_id)
+    assert {j: r.settled_as for j, r in replayed.items()} == {
+        "job-001": "COMPLETED",
+        "job-002": "FAILED",
+    }

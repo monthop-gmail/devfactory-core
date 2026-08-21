@@ -95,7 +95,9 @@ class Job:
 
     Construction emits ``JOB_CREATED``; every accepted transition emits
     ``STATE_TRANSITION``; entering a decision state also emits
-    ``GOVERNANCE_DECISION``; reaching COMPLETED also emits ``JOB_COMPLETED``.
+    ``GOVERNANCE_DECISION``; reaching COMPLETED also emits ``JOB_COMPLETED``;
+    and settling in **any** terminal emits ``JOB_SETTLED`` last of all
+    (RFC-0012).
     There is no way to change ``state`` without going through
     :meth:`transition`, which is what makes "no silent state change" hold rather
     than merely be documented — and no way to reach ``APPROVED`` without leaving
@@ -342,7 +344,37 @@ class Job:
         )
         if to is JobState.COMPLETED:
             self._emit(EventType.JOB_COMPLETED, actor=principal or self._principal)
+        if to in TERMINAL:
+            self._settle(to, actor=principal or self._principal)
         return event
+
+    def _settle(self, terminal: JobState, *, actor: Principal) -> Event:
+        """Emit the closing record. RFC-0012.
+
+        Nothing that comes after a job's last record can vouch for it, which is
+        why replay could only ever catch a trail truncated after ``COMPLETED`` —
+        that terminal implies ``JOB_COMPLETED`` and the other three implied
+        nothing. This record is what the other three were missing, and
+        ``COMPLETED`` emits it too so the rule has no exception in it for a
+        reader to have to know about.
+
+        ``event_count`` is scoped by ``job_id``, not by subject. That is the unit
+        replay actually verifies — ``replay_tenant`` groups by ``job_id`` — and it
+        is the scope that matters: ``GOVERNANCE_DECISION`` is about the approval
+        and carries its own ``subject_id``, so counting by subject would miss the
+        very records the count exists to notice.
+        """
+        counted = sum(1 for event in self._events if event.job_id == self._job_id)
+        return self._emit(
+            EventType.JOB_SETTLED,
+            actor=actor,
+            metadata={
+                "settled_as": terminal.value,
+                # +1 for this record: a reader holding the trail compares the
+                # count against everything it holds, this record included.
+                "event_count": counted + 1,
+            },
+        )
 
     # ---- named transitions -------------------------------------------------
     # These exist so the arguments a guard requires are visible in the call

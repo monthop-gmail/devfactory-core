@@ -58,9 +58,12 @@ from .errors import (
     EmptyTrail,
     ExecutionAfterExpiry,
     IncompleteSettlement,
+    MiscountedTrail,
     UnauditedDecision,
     UnauditedExecution,
     UndeclaredTransition,
+    PrematureSettlement,
+    UnsettledTrail,
     UnstartedTrail,
 )
 
@@ -110,6 +113,10 @@ class ReplayedJob:
     #: Always agrees with ``state`` — a trail where it did not raises
     #: :class:`IncompleteSettlement` rather than returning the disagreement.
     completed: bool
+    #: How the job settled, read from the closing record — ``None`` while it runs.
+    #: A terminal job without one raises :class:`UnsettledTrail`, so this is
+    #: ``None`` only for a job that has not settled (RFC-0012).
+    settled_as: str | None = None
 
     @property
     def is_terminal(self) -> bool:
@@ -188,6 +195,9 @@ def replay_job(events: Iterable[Event]) -> ReplayedJob:
     decision_ids: list[str] = []
     history: list[ReplayedTransition] = []
     completed = False
+    # Named for the closing record, not for the approval — `settled` is already
+    # taken in this function for the decision that settled.
+    closing: dict[str, Any] | None = None
 
     for event in trail[1:]:
         if event.job_id != job_id:
@@ -199,6 +209,10 @@ def replay_job(events: Iterable[Event]) -> ReplayedJob:
             if approval is not None:
                 pending = approval
                 decision_ids.append(approval["approval_id"])
+            continue
+
+        if kind == EventType.JOB_SETTLED.value:
+            closing = dict(event.metadata or {})
             continue
 
         if kind == EventType.JOB_COMPLETED.value:
@@ -279,6 +293,18 @@ def replay_job(events: Iterable[Event]) -> ReplayedJob:
     if completed is not (state is JobState.COMPLETED):
         raise IncompleteSettlement(job_id, state.value, announced=completed)
 
+    # RFC-0012. The from→to chain has every record vouched for by the one after
+    # it, which leaves the last one unvouched — these two checks are the only
+    # ones that look at the end of a trail rather than through it.
+    if state in TERMINAL and closing is None:
+        raise UnsettledTrail(job_id, state.value)
+    if closing is not None and state not in TERMINAL:
+        raise PrematureSettlement(job_id, state.value)
+    if closing is not None:
+        announced = closing.get("event_count")
+        if isinstance(announced, int) and announced != len(trail):
+            raise MiscountedTrail(job_id, announced, len(trail))
+
     return ReplayedJob(
         job_id=job_id,
         tenant_id=creation.tenant_id,
@@ -291,6 +317,7 @@ def replay_job(events: Iterable[Event]) -> ReplayedJob:
         decision_ids=tuple(decision_ids),
         history=tuple(history),
         completed=completed,
+        settled_as=(closing or {}).get("settled_as"),
     )
 
 

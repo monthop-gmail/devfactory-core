@@ -13,12 +13,16 @@
 # ที่มาฉบับเต็มเป็น prose อยู่ใน rfcs/ — ถ้าไฟล์นี้ขัดกับ RFC ให้ถือ RFC เป็นหลัก
 # แล้วเปิด issue เพราะแปลว่าไฟล์นี้ผิด
 
-semantics_version: "1.1"
+semantics_version: "1.2"
 owner: devfactory-core
 authority: rfcs/0005-platform-contract-authority.md
 amended_by: rfcs/0009-vocabulary-extension.md   # Rule 2 — เพิ่ม event type เป็น additive แล้ว
 license: MIT
 
+# 1.1 → 1.2 (2026-08-21)
+#   เพิ่ม guarantee: ทุกการจบแบบ terminal ต้องออกใบปิดท้าย (rfcs/0012)
+#   contract ที่ derive ต้องอัปเดต derived_from.semantics_version เป็น "1.2"
+#
 # 1.0 → 1.1 (2026-08-18)
 #   event_types เปลี่ยนจาก "ชุดปิด" เป็น "ขั้นต่ำที่ต้องมี" — agent-platform เพิ่มเองได้
 #   contract ที่ derive ต้องอัปเดต derived_from.semantics_version เป็น "1.1"
@@ -53,7 +57,7 @@ derived_from_block_template: |
   derived_from:
     repo: monthop-gmail/devfactory-core
     manifest: contract-semantics.yaml
-    semantics_version: "1.1"
+    semantics_version: "1.2"
     rfcs:
       - rfcs/0002-governance-decision-contract.md
     license: MIT
@@ -164,6 +168,21 @@ contracts:
     source:
       - rfcs/0003-audit-event-log-schema.md
       - rfcs/0008-external-event-intake.md     # amend 0003
+      - rfcs/0012-terminal-closing-record.md   # เพิ่ม guarantee ใบปิดท้าย
+
+    # ℹ️ ไม่ใช่ส่วนหนึ่งของ contract — อยู่นอก frozen: จึงไม่ขยับ semantics_version
+    # guarantee ข้างล่างพูดถึง "ใบปิดท้าย" โดยไม่ระบุชื่อ type โดยเจตนา:
+    # guarantee เป็นของ repo นี้ ส่วน vocabulary เพิ่มได้เองฝั่ง agent-platform (rfcs/0009)
+    implementation_status:
+      closing_record_type: JOB_SETTLED
+      note: >-
+        packages/core emit JOB_SETTLED เป็นใบสุดท้ายทุกครั้งที่ job เข้า terminal
+        · COMPLETED ออกทั้ง JOB_COMPLETED และ JOB_SETTLED เพราะสองใบตอบคนละคำถาม
+        และกฎที่ไม่มีข้อยกเว้นคือสิ่งที่ทำให้ตรวจได้
+        · พก metadata.settled_as และ metadata.event_count (นับตาม job_id รวมใบปิดเอง)
+        · payload validate ผ่านอยู่แล้วเพราะ field event_type อ้าง EventTypeName ชุดเปิด
+        — การเพิ่ม JOB_SETTLED เข้า $defs.EventType เป็น additive ฝั่ง agent-platform
+        ทำเมื่อไหร่ก็ได้ ไม่มีอะไรรอมัน
 
     frozen:
       event_types:
@@ -183,6 +202,9 @@ contracts:
       guarantees:
         - event เป็น append-only
         - no silent state change — ทุกการเปลี่ยน state ต้องมี event
+        # rfcs/0012 — ปิดช่องที่ agent-platform#23 ยกมา: trail ที่ถูกตัดท้ายอ่านได้
+        # เหมือน trail ที่สมบูรณ์ เพราะไม่มีอะไรยืนยันใบสุดท้าย
+        - ทุกการจบแบบ terminal ต้องออกใบปิดท้าย — ไม่ใช่แค่ทางที่จบสำเร็จ
 
       invariants:
         - ทุก event ต้องตอบได้ว่า "เกี่ยวกับอะไร" — subject จำเป็นเสมอ ส่วน job_id optional

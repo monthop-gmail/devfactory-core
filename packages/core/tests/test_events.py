@@ -29,8 +29,10 @@ def test_every_transition_emits_exactly_one_state_transition(alice, clock):
 
 
 def test_completion_emits_job_completed(alice, clock):
+    """Still emitted, and no longer last — JOB_SETTLED closes the trail (RFC-0012)."""
     job = drive(_fresh(alice, clock), JobState.COMPLETED, alice)
-    assert job.events[-1].event_type is EventType.JOB_COMPLETED
+    kinds = [e.event_type for e in job.events]
+    assert kinds[-2:] == [EventType.JOB_COMPLETED, EventType.JOB_SETTLED]
 
 
 def test_history_and_events_are_read_only_copies(alice, clock):
@@ -196,8 +198,8 @@ def test_job_exposes_its_identity_and_settlement(alice, clock):
     assert job.is_terminal is True
 
 
-def test_the_seven_canonical_event_types_are_declared():
-    """RFC-0003's vocabulary, in one place. The state machine emits four of them."""
+def test_the_canonical_event_types_are_declared():
+    """RFC-0003's seven, plus JOB_SETTLED from RFC-0012. The engine emits five."""
     assert {t.value for t in EventType} == {
         "JOB_CREATED",
         "STATE_TRANSITION",
@@ -206,10 +208,11 @@ def test_the_seven_canonical_event_types_are_declared():
         "EXECUTION_STARTED",
         "EXECUTION_FAILED",
         "JOB_COMPLETED",
+        "JOB_SETTLED",
     }
 
 
-def test_the_state_machine_emits_only_its_own_four(alice, clock):
+def test_the_state_machine_emits_only_its_own_five(alice, clock):
     """The other three belong to orchestration and execution — issue #7 and later."""
     job = drive(_fresh(alice, clock), JobState.COMPLETED, alice)
     emitted = {e.event_type for e in job.events}
@@ -218,6 +221,7 @@ def test_the_state_machine_emits_only_its_own_four(alice, clock):
         EventType.STATE_TRANSITION,
         EventType.GOVERNANCE_DECISION,
         EventType.JOB_COMPLETED,
+        EventType.JOB_SETTLED,
     }
     assert EventType.GOVERNANCE_DECISION in emitted
 
@@ -300,3 +304,75 @@ def test_correlation_id_is_carried_when_given(clock):
         occurred_at=clock(),
         job_id="job-1",
     ).as_payload()
+
+
+# ---- the closing record, RFC-0012 ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "terminal",
+    [JobState.COMPLETED, JobState.FAILED, JobState.CANCELLED, JobState.TIMED_OUT],
+    ids=lambda s: s.value,
+)
+def test_every_terminal_closes_the_trail(terminal, alice, clock):
+    """The rule with no exception in it — that is what makes it checkable."""
+    job = drive(_fresh(alice, clock), terminal, alice)
+    last = job.events[-1]
+    assert last.event_type is EventType.JOB_SETTLED
+    assert last.metadata["settled_as"] == terminal.value
+
+
+def test_the_closing_record_is_last(alice, clock):
+    """Its count includes itself, so nothing may follow it."""
+    job = drive(_fresh(alice, clock), JobState.COMPLETED, alice)
+    settled = [i for i, e in enumerate(job.events) if e.event_type is EventType.JOB_SETTLED]
+    assert settled == [len(job.events) - 1]
+
+
+@pytest.mark.parametrize(
+    "terminal",
+    [JobState.COMPLETED, JobState.FAILED, JobState.CANCELLED, JobState.TIMED_OUT],
+    ids=lambda s: s.value,
+)
+def test_the_count_matches_the_trail(terminal, alice, clock):
+    job = drive(_fresh(alice, clock), terminal, alice)
+    assert job.events[-1].metadata["event_count"] == len(job.events)
+
+
+def test_the_count_is_scoped_by_job_id_not_subject(alice, clock):
+    """GOVERNANCE_DECISION is about the approval and carries its own subject_id.
+
+    Counting by subject would miss it; replay groups by job_id, so that is the
+    scope where producer and reader count the same set.
+    """
+    job = drive(_fresh(alice, clock), JobState.FAILED, alice)
+    subjects = {e.subject_type for e in job.events}
+    assert subjects == {"job", "approval"}, "the trail must span more than one subject"
+    counted = sum(1 for e in job.events if e.job_id == job.job_id)
+    assert job.events[-1].metadata["event_count"] == counted == len(job.events)
+
+
+def test_a_running_job_has_no_closing_record(alice, clock):
+    job = drive(_fresh(alice, clock), JobState.IN_PROGRESS, alice)
+    assert all(e.event_type is not EventType.JOB_SETTLED for e in job.events)
+
+
+def test_rejected_is_not_a_settlement(alice, clock):
+    """REJECTED returns to DRAFT, so the job has not settled and nothing closes."""
+    job = drive(_fresh(alice, clock), JobState.REJECTED, alice)
+    assert all(e.event_type is not EventType.JOB_SETTLED for e in job.events)
+
+
+def test_the_closing_record_is_about_the_job(alice, clock):
+    job = drive(_fresh(alice, clock), JobState.CANCELLED, alice)
+    payload = job.events[-1].as_payload()
+    assert payload["subject_type"] == "job"
+    assert payload["subject_id"] == payload["job_id"] == job.job_id
+
+
+def test_a_superseding_job_closes_its_own_trail(alice, clock):
+    """Each attempt is a separate trail and each closes itself."""
+    failed = drive(_fresh(alice, clock), JobState.FAILED, alice)
+    replacement = failed.supersede(job_id="job-002")
+    assert failed.events[-1].metadata["settled_as"] == "FAILED"
+    assert all(e.event_type is not EventType.JOB_SETTLED for e in replacement.events)
