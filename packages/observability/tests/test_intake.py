@@ -11,6 +11,7 @@ from devfactory_core.errors import InvalidIdentifier
 from devfactory_observability import (
     EventLog,
     MalformedEventType,
+    MalformedSequence,
     ExternalSourceRequired,
     FabricatedIdentifier,
     MissingSubject,
@@ -270,3 +271,47 @@ def test_a_malformed_type_never_reaches_the_log(external, clock):
     with pytest.raises(MalformedEventType):
         log.append(accept_external(external(event_type="bad type"), clock=clock))
     assert len(log) == 0
+
+
+# ---- sequence is the producer's statement about its own order ---------------
+
+
+def test_sequence_is_carried_through_untouched(external, clock):
+    """event/v1 v1.3.0 · ADR-0015. Dropping it discards the only thing that can
+    order events a producer wrote from one clock."""
+    event = accept_external(external(sequence=3), clock=clock)
+    assert event.sequence == 3
+    assert event.as_payload()["sequence"] == 3
+
+
+def test_sequence_is_optional(external, clock):
+    event = accept_external(external(), clock=clock)
+    assert event.sequence is None
+    assert "sequence" not in event.as_payload()
+
+
+@pytest.mark.parametrize("bad", [0, -1, "2", 1.5, True, []], ids=repr)
+def test_a_sequence_that_is_not_a_position_is_refused(bad, external, clock):
+    """Not a smaller ordering claim — not an ordering claim at all."""
+    with pytest.raises(MalformedSequence):
+        accept_external(external(sequence=bad), clock=clock)
+
+
+def test_ties_are_resolvable_once_sequence_survives(external, clock):
+    """The reader rule event/v1 states: sort by (occurred_at, sequence).
+
+    A batch shares one timestamp, so without sequence the order is unrecoverable
+    — which is the whole reason the field exists.
+    """
+    stamp = "2026-01-01T00:00:00+00:00"
+    batch = [
+        accept_external(
+            external(event_id=f"e-{n}", subject_id="round-1", occurred_at=stamp, sequence=n),
+            clock=clock,
+        )
+        for n in (3, 1, 2)
+    ]
+    keys = [(e.occurred_at, e.sequence) for e in batch]
+    assert len(set(keys)) == 3, "ties must be resolvable"
+    ordered = sorted(batch, key=lambda e: (e.occurred_at, e.sequence))
+    assert [e.sequence for e in ordered] == [1, 2, 3]

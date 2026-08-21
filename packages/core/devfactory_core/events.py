@@ -105,6 +105,11 @@ class Event:
     workspace_id: str | None = None
     actor: Principal | None = None
     correlation_id: str | None = None
+    #: ``event/v1`` v1.3.0 — orders events whose ``occurred_at`` ties, which
+    #: happens whenever a producer writes a batch from one clock. Carried
+    #: through untouched: it is the producer's statement about its own order,
+    #: and dropping it would throw away the only thing that can recover it.
+    sequence: int | None = None
     transition: dict[str, Any] | None = None
     source: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -143,6 +148,8 @@ class Event:
             payload["actor"] = self.actor.as_payload()
         if self.correlation_id is not None:
             payload["correlation_id"] = self.correlation_id
+        if self.sequence is not None:
+            payload["sequence"] = self.sequence
         if self.transition is not None:
             payload["transition"] = self.transition
         if self.metadata:

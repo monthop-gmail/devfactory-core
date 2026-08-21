@@ -73,6 +73,8 @@ bad one would lose history that actually happened.
 | unparseable `occurred_at` | `ValueError` — substituting our clock would misreport when it happened |
 | unrecognised `event_type` | **accepted and kept**, `is_recognised` is `False` |
 | malformed `event_type` | `MalformedEventType` — see below |
+| `sequence` that is not an integer ≥ 1 | `MalformedSequence` |
+| `sequence` present and well formed | **kept untouched** — it is the producer's order, not ours to recompute |
 
 ### Unknown is kept; malformed is refused
 

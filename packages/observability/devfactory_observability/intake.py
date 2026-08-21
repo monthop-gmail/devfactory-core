@@ -33,6 +33,7 @@ from devfactory_core.identity import Principal, validate_id
 from .errors import (
     ExternalSourceRequired,
     FabricatedIdentifier,
+    MalformedSequence,
     MalformedEventType,
     MissingSubject,
     MissingTenant,
@@ -137,6 +138,14 @@ def accept_external(
     if correlation_id is not None:
         correlation_id = validate_id("correlation_id", str(correlation_id))
 
+    # Kept rather than recomputed. ADR-0015 added it so a reader can order events
+    # a producer wrote from one clock, and only the producer knows that order —
+    # dropping it here would silently discard the answer and leave the ties.
+    sequence = payload.get("sequence")
+    if sequence is not None:
+        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+            raise MalformedSequence(sequence)
+
     return Event(
         event_id=str(payload.get("event_id") or new_event_id()),
         event_type=event_type,
@@ -148,6 +157,7 @@ def accept_external(
         workspace_id=workspace_id,
         actor=principal,
         correlation_id=correlation_id,
+        sequence=sequence,
         # Rule 4. The kind is forced rather than trusted: an inbound event is
         # external by the fact of arriving here, whatever it claims about itself.
         source={"kind": "external", "system": str(system)},

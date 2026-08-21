@@ -376,3 +376,27 @@ def test_a_superseding_job_closes_its_own_trail(alice, clock):
     replacement = failed.supersede(job_id="job-002")
     assert failed.events[-1].metadata["settled_as"] == "FAILED"
     assert all(e.event_type is not EventType.JOB_SETTLED for e in replacement.events)
+
+
+def test_sequence_round_trips_when_present(clock):
+    """event/v1 v1.3.0. We do not produce it, but we must not lose it."""
+    event = Event(
+        event_id=new_event_id(),
+        event_type="SIGHTING_RECORDED",
+        tenant_id="acme",
+        subject_type="external",
+        subject_id="round-1",
+        occurred_at=clock(),
+        sequence=2,
+    )
+    assert event.as_payload()["sequence"] == 2
+
+
+def test_the_engine_emits_no_sequence_of_its_own(alice, clock):
+    """We write one event at a time, so we have no batch order to state.
+
+    Claiming a position we do not hold would be inventing a value, which RFC-0008
+    forbids for the same reason it forbids inventing a job_id.
+    """
+    job = drive(_fresh(alice, clock), JobState.COMPLETED, alice)
+    assert all("sequence" not in e.as_payload() for e in job.events)
