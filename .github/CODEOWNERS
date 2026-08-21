@@ -4,9 +4,19 @@
 # และ CONTRIBUTING.md ระบุว่า architecture change ต้องมี RFC ก่อน
 # ไฟล์นี้ทำให้ path ที่ถือ authority นั้นถูก request review อัตโนมัติ
 #
-# หมายเหตุ: CODEOWNERS จะบังคับให้ต้อง review ก่อน merge ได้จริง
-# ต่อเมื่อเปิด branch protection + "Require review from Code Owners" บน main
-# ตอนนี้ยังไม่เปิด — ไฟล์นี้จึงทำหน้าที่ auto-request reviewer เท่านั้น
+# ⚠️ วันนี้ไฟล์นี้ยังไม่ให้ผลอะไรเลย และไม่ใช่เพราะลืมเปิดอะไร
+#
+# branch protection เปิดแล้วตั้งแต่ 2026-08-22 (required status check + enforce_admins)
+# แต่ **ไม่ได้เปิด "Require review from Code Owners" โดยเจตนา** เพราะ repo นี้มี
+# collaborator คนเดียว และ GitHub ไม่ให้อนุมัติ PR ของตัวเอง — เปิดแล้วจะ merge
+# ไม่ได้เลยสักอัน ไม่ใช่ได้ gate ที่เข้มขึ้น
+#
+# ผลที่วัดได้: PR ที่ผ่านมาทุกใบมี requested_reviewers = 0 เพราะ GitHub ไม่ request
+# review จากคนที่เปิด PR เอง
+#
+# ไฟล์นี้จะเริ่มทำงานเมื่อมี maintainer คนที่สอง หรือมีคนนอก fork มาเปิด PR
+# — ตอนนั้นค่อยเปิด required code-owner review ได้โดยไม่ล็อกตัวเอง
+# เก็บไว้เป็น placeholder เพราะราคาเป็นศูนย์ และ path ที่ถือ authority ถูกประกาศไว้แล้ว
 
 # ค่าเริ่มต้น
 *                           @monthop-gmail
