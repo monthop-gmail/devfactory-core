@@ -8,22 +8,17 @@ name: test
 # report. That needs branch protection with these checks marked required, which is
 # a repository setting and not something this file can assert.
 
+# ไม่มี paths: filter โดยเจตนา — check เหล่านี้เป็น required check ของ branch protection
+# และ required check ที่ไม่ทำงานจะไม่รายงานผล ทำให้ PR ค้างที่ "Expected — waiting for
+# status to be reported" ตลอดไป · PR ที่แตะแค่ rfcs/ หรือ README จะติดกับดักนั้นพอดี
+# ซึ่งเป็น PR ที่ repo นี้เปิดบ่อยที่สุด
+#
+# ราคาที่จ่ายคือรันชุดเทสต์กับ PR ที่เป็นเอกสารล้วน ~1 นาที ซึ่งถูกกว่าการมี gate
+# ที่บล็อกงานผิดชนิด
 on:
   push:
     branches: [main]
-    paths:
-      - 'packages/**'
-      - 'apps/**'
-      - 'conformance/**'
-      - 'simulation/**'
-      - '.github/workflows/test.yml'
   pull_request:
-    paths:
-      - 'packages/**'
-      - 'apps/**'
-      - 'conformance/**'
-      - 'simulation/**'
-      - '.github/workflows/test.yml'
   workflow_dispatch:
 
 permissions:
