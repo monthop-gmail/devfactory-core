@@ -1,7 +1,7 @@
 # RFC-0010: Which States May Reach `FAILED`
 
 ## Status
-Draft — proposed 2026-08-19 · pending maintainer approval per `GOVERNANCE.md`
+Accepted — proposed 2026-08-19 · merged to `main` 2026-08-19 in [#16](https://github.com/monthop-gmail/devfactory-core/pull/16)
 
 Amends [RFC-0001](0001-job-state-machine.md) as already amended by
 [RFC-0007](0007-job-lifecycle-completeness.md).

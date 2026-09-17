@@ -1,7 +1,7 @@
 # RFC-0011: Where `REQUIRE_CHANGES` Sends a Job
 
 ## Status
-Draft — proposed 2026-08-19 · pending maintainer approval per `GOVERNANCE.md`
+Accepted — proposed 2026-08-19 · merged to `main` 2026-08-19 in [#22](https://github.com/monthop-gmail/devfactory-core/pull/22)
 
 Amends [RFC-0001](0001-job-state-machine.md) as already amended by
 [RFC-0007](0007-job-lifecycle-completeness.md) and [RFC-0010](0010-failable-states.md).

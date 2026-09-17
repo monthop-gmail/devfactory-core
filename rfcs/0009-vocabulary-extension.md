@@ -1,7 +1,7 @@
 # RFC-0009: Vocabulary Extension Is Additive
 
 ## Status
-Draft — Architecture Owner direction agreed 2026-08-18 · pending maintainer approval per `GOVERNANCE.md`
+Accepted — direction agreed 2026-08-18 · merged to `main` 2026-08-18 in [#12](https://github.com/monthop-gmail/devfactory-core/pull/12)
 
 **Amends [RFC-0005](0005-platform-contract-authority.md) Rule 2** and its mirror in
 [ADR-0006](https://github.com/monthop-gmail/agent-platform/blob/main/decisions/0006-contract-versioning.md).

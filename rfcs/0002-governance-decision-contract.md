@@ -1,7 +1,7 @@
 # RFC-0002: Governance Decision Contract
 
 ## Status
-Draft
+Accepted — merged to `main` 2026-02-18 ([`d23cea4`](https://github.com/monthop-gmail/devfactory-core/commit/d23cea4))
 
 **Authority scope set by [RFC-0005](0005-platform-contract-authority.md).** This
 repository owns the semantics below — the decision vocabulary and the guarantees.

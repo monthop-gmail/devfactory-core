@@ -1,7 +1,7 @@
 # RFC-0001: Job State Machine
 
 ## Status
-Draft
+Accepted — merged to `main` 2026-02-18 ([`d23cea4`](https://github.com/monthop-gmail/devfactory-core/commit/d23cea4))
 
 **Amended by [RFC-0007](0007-job-lifecycle-completeness.md)** — adds `CANCELLED`,
 `TIMED_OUT`, and `AWAITING_APPROVAL`, and resolves both Open Questions below.

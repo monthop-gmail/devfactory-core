@@ -1,7 +1,7 @@
 # RFC-0013: Audit Fields That Hold Human Text
 
 ## Status
-Draft — requested by [`agent-platform`](https://github.com/monthop-gmail/agent-platform) under [RFC-0005](0005-platform-contract-authority.md) Rule 2 · pending maintainer approval per `GOVERNANCE.md`
+Accepted — requested by [`agent-platform`](https://github.com/monthop-gmail/agent-platform) under [RFC-0005](0005-platform-contract-authority.md) Rule 2 · merged to `main` 2026-09-17 in [#34](https://github.com/monthop-gmail/devfactory-core/pull/34)
 
 Proposes **one new invariant** in `contract-semantics.yaml` → `semantics_version` `1.2` → `1.3`.
 

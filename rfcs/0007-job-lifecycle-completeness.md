@@ -1,7 +1,7 @@
 # RFC-0007: Job Lifecycle Completeness
 
 ## Status
-Draft — Architecture Owner direction agreed 2026-08-17 · pending maintainer approval per `GOVERNANCE.md`
+Accepted — direction agreed 2026-08-17 · merged to `main` 2026-08-18 in [#10](https://github.com/monthop-gmail/devfactory-core/pull/10)
 Amended 2026-08-19 — see [Amendment 1](#amendment-1--approved-may-time-out-2026-08-19).
 Amended 2026-08-20 — see [Amendment 2](#amendment-2--a-job-may-supersede-any-terminal-it-did-not-deliver-from-2026-08-20).
 

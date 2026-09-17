@@ -1,7 +1,7 @@
 # RFC-0004: Orchestration vs Execution Boundary
 
 ## Status
-Draft
+Accepted — merged to `main` 2026-02-18 ([`d23cea4`](https://github.com/monthop-gmail/devfactory-core/commit/d23cea4))
 
 **Authority confirmed by [RFC-0005](0005-platform-contract-authority.md).** This
 RFC stays wholly under this repository's authority — it has no derived contract in
