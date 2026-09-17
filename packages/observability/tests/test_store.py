@@ -98,6 +98,26 @@ def test_partitions_are_separate_not_a_filtered_list(make_job):
     assert {e.tenant_id for e in log.read("globex")} == {"globex"}
 
 
+def test_a_refusal_does_not_answer_for_another_tenant(make_job):
+    """RFC-0014 obligation 2 + 4: idempotency is scoped to a tenant.
+
+    A set of seen ids shared by every tenant would make ``append`` a way to ask
+    what another tenant holds — write a guessed id into an empty tenant and read
+    the answer off whether it was refused. The read side already refuses to
+    answer that question; the write side has to refuse it too.
+    """
+    from dataclasses import replace
+
+    acme = make_job(tenant_id="acme")
+    log = EventLog()
+    log.append(acme.events[0])
+
+    same_id_elsewhere = replace(acme.events[0], tenant_id="globex")
+    assert log.append(same_id_elsewhere) is same_id_elsewhere
+    assert log.count("globex") == 1
+    assert log.count("acme") == 1
+
+
 def test_no_method_reads_across_tenants(make_job):
     acme = make_job(tenant_id="acme")
     globex = make_job(job_id="job-002", tenant_id="globex")

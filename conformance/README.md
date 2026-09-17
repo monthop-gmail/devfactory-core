@@ -79,6 +79,37 @@ retired entry left in machinery still runs. The record of what we once deviated 
 and why belongs in `platform-contract.yaml` under `gaps:`, which is documentation and
 marks closed entries `status: resolved` instead of deleting them.
 
+## What a store owes — `store_contract.py`
+
+```bash
+python3 conformance/store_contract.py
+python3 conformance/store_contract.py --implementation pkg.module:StoreClass
+python3 conformance/store_contract.py --json
+```
+
+RFC-0014 step 3. The five obligations, run against an event store implementation
+through the contract in `devfactory_observability/contract.py` — never by reaching
+inside one. The in-memory `EventLog` is what it runs against today, and that is the
+point: it is a **reference** implementation rather than a special case, so a durable
+one added later runs the same suite with `--implementation` and fails here instead
+of in production.
+
+`OBLIGATIONS` is the written contract and the suite pairs every entry with a check
+by number, refusing to run if one has no check. A sixth obligation added to the
+declaration and nowhere else turns the run red rather than passing over five.
+
+**It found something on its first run.** The reference implementation kept one set
+of seen `event_id`s shared by every tenant, which made `append` answer the question
+`read` refuses to answer: write a guessed id into an empty tenant, and whether it is
+refused tells you another tenant holds it. Scoping the set per tenant changed no
+test that existed — `event_id` is unique by construction, so nothing had ever
+exercised the case. See the correction in RFC-0014 Decision 2.
+
+Why this is not in `payload_check.py`: that file validates **payloads** against
+pinned upstream contracts, and these obligations are about the **store**, owned
+here, with no schema upstream to validate against. Mixing them would make one red
+run mean two unrelated things.
+
 ## Is the pin still current — `pin_freshness.py`
 
 ```bash

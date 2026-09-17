@@ -2,6 +2,10 @@
 
 Scope, per issue #6: in memory for v0.1. No metrics backend, no dashboard.
 
+This is the **reference implementation** of the contract in ``contract.py``
+(RFC-0014), not a special case of it. It passes ``conformance/store_contract.py``
+on the same terms any durable implementation will have to.
+
 Why partitions rather than one list with a tenant filter
 --------------------------------------------------------
 RFC-0006 states tenant isolation as a **storage-layer** guarantee and says
@@ -10,6 +14,15 @@ in-memory analogue of that is a separate partition per tenant, so a read has
 nowhere to look outside the tenant it names. A single list guarded by a filter
 would put one forgotten predicate between two tenants; there is no predicate to
 forget here, because there is no shared list.
+
+The set of seen ``event_id``s is kept **inside each partition** for that same
+reason. A single set shared by every tenant would be a shared structure after
+all: appending a guessed id into an empty tenant would be refused if another
+tenant held it, which answers a question about that tenant's contents. It also
+could not survive the contract it claims to demonstrate — obligation 2 gives
+each tenant its own physical scope, and a store built that way has nowhere to
+put a global index without reaching across the boundary that obligation exists
+to draw.
 
 Every read takes a ``tenant_id``. There is deliberately no method that returns
 events across tenants.
@@ -36,7 +49,7 @@ class EventLog:
 
     def __init__(self) -> None:
         self._partitions: dict[str, list[Event]] = {}
-        self._seen: set[str] = set()
+        self._seen: dict[str, set[str]] = {}
 
     # ---- write -------------------------------------------------------------
 
@@ -50,11 +63,11 @@ class EventLog:
             raise MissingTenant(f"event_id={event.event_id}")
         if not event.subject_type or not event.subject_id:
             raise MissingSubject(f"event_id={event.event_id}")
-        if event.event_id in self._seen:
+        if event.event_id in self._seen.get(event.tenant_id, ()):
             raise DuplicateEvent(event.event_id)
 
         self._partitions.setdefault(event.tenant_id, []).append(event)
-        self._seen.add(event.event_id)
+        self._seen.setdefault(event.tenant_id, set()).add(event.event_id)
         return event
 
     def extend(self, events: Iterable[Event]) -> tuple[Event, ...]:
