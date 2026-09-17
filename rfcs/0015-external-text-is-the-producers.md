@@ -1,7 +1,7 @@
 # RFC-0015: The Leaf Rule Holds for Records We Did Not Write
 
 ## Status
-Draft — เสนอ 2026-09-17 · จะเป็น `Accepted` เมื่อ merge ตาม `CONTRIBUTING.md`
+Accepted — เสนอ 2026-09-17 · merged to `main` 2026-09-18 in [#41](https://github.com/monthop-gmail/devfactory-core/pull/41)
 
 Adds a **non-frozen** block to `contract-semantics.yaml`. Changes no frozen subtree,
 so `semantics_version` stays `1.3` and `agent-platform` has nothing to follow — see
