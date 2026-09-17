@@ -218,11 +218,20 @@ Steps 2–4 are inside v0.x. None of them waits on the durable store or on trans
 
 ## Open Questions
 
-- **Does `review_by` on a `none` entry need a failing check, or a warning?**
-  `known_gaps` fails on expiry. A producer's declaration is not ours to write, so
-  failing our build over their unfinished work is arguably punishing the wrong repo
-  — and not failing is how a note becomes permanent. Decidable with the first entry
-  that actually expires, not now.
+- ~~**Does `review_by` on a `none` entry need a failing check, or a warning?**~~
+  **Answered during implementation, 2026-09-18: it fails.**
+
+  > The question was framed as *"failing our build over another repository's
+  > unfinished work punishes the wrong repo"*, and that framing was wrong about
+  > whose obligation the date carries. What lapses is **ours** — to go back and
+  > re-read the entry — not theirs to publish a declaration. Extending it with a
+  > reason, or recording that they now have one, is work entirely on this side.
+  >
+  > And writing the date made the third option visible, which was neither of the
+  > two in the question: **nothing read `review_by` at all.** A date no check opens
+  > is the shape this repository has already named twice — *"backstop ที่เขียนไว้
+  > แล้วไม่มีใครอ่าน คือคำสัญญาที่ไม่มีผล"* — and a warning in a green run is only
+  > seen by someone who already went looking.
 - **Do the two manifests need one shape?** `care-agent-platform` declares
   `path` / `written_by` / `detail`; this repository declares `leaf` /
   `who_writes_it` / `why_it_cannot_be_a_pointer` / `retention_layer`. Same idea,
