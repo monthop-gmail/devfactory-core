@@ -10,6 +10,8 @@ import pytest
 from conftest import drive
 from devfactory_core import Job, JobState, Principal
 from devfactory_core.errors import (
+    SelfSupersedingJob,
+    UnknownSupersededDecision,
     ExecutionBeforeApproval,
     ExpiredApproval,
     InvalidIdentifier,
@@ -438,3 +440,66 @@ def test_a_job_with_no_approval_at_all_is_not_reported_as_expired(alice, clock):
     job = _fresh(alice, clock)
     assert job.approval_expires_at is None
     assert job.approval_expired is False
+
+
+# ---- the doors the manifest listed as open ---------------------------------
+# approval/v1 v1.1.0 leaves five invariants to the producer. The default path
+# satisfied them and nothing checked a caller who supplied the citation by hand.
+
+
+def test_a_citation_must_name_a_decision_of_this_job(alice, clock):
+    job = drive(_fresh(alice, clock), JobState.GOVERNANCE_ANALYSIS, alice)
+    with pytest.raises(UnknownSupersededDecision) as excinfo:
+        job.decide("REJECT", authority=alice, reason="no", supersedes_decision_id="deadbeef")
+    assert excinfo.value.cited == "deadbeef"
+
+
+def test_a_citation_may_not_name_another_jobs_decision(alice, clock):
+    """Existence carries tenant and subject with it — decisions live on their job."""
+    other = drive(_fresh(alice, clock), JobState.APPROVED, alice)
+    borrowed = other.decisions[-1].decision_id
+
+    job = drive(_fresh(alice, clock, job_id="job-002"), JobState.GOVERNANCE_ANALYSIS, alice)
+    with pytest.raises(UnknownSupersededDecision):
+        job.decide("APPROVE", authority=alice, reason="ok", supersedes_decision_id=borrowed)
+
+
+def test_a_valid_citation_is_accepted(alice, clock):
+    """The guard refuses what it should and nothing else."""
+    job = drive(_fresh(alice, clock), JobState.GOVERNANCE_ANALYSIS, alice)
+    first = job.decide("REJECT", authority=alice, reason="missing analysis")
+    job.transition(JobState.DRAFT)
+    job.submit_for_governance()
+    second = job.decide(
+        "APPROVE", authority=alice, reason="fixed", supersedes_decision_id=first.decision_id
+    )
+    assert second.supersedes_decision_id == first.decision_id
+
+
+def test_the_default_citation_still_points_at_the_previous_decision(alice, clock):
+    """The path every caller actually takes is unchanged."""
+    job = drive(_fresh(alice, clock), JobState.GOVERNANCE_ANALYSIS, alice)
+    first = job.decide("REJECT", authority=alice, reason="no")
+    job.transition(JobState.DRAFT)
+    job.submit_for_governance()
+    second = job.decide("APPROVE", authority=alice, reason="yes")
+    assert second.supersedes_decision_id == first.decision_id
+
+
+def test_the_first_decision_cites_nothing(alice, clock):
+    """Absence of a citation claims to be the first, and here that is true."""
+    job = drive(_fresh(alice, clock), JobState.GOVERNANCE_ANALYSIS, alice)
+    assert job.decide("APPROVE", authority=alice, reason="ok").supersedes_decision_id is None
+
+
+def test_a_job_may_not_supersede_itself(alice, clock):
+    """The one part of RFC-0007 Amendment 2 checkable without a job registry."""
+    with pytest.raises(SelfSupersedingJob):
+        _fresh(alice, clock, supersedes_job_id="job-001")
+
+
+def test_superseding_another_job_is_still_allowed_here(alice, clock):
+    """Whether that job exists and settled without delivering needs both jobs in
+    hand — Job.supersede() checks it, this path cannot, and does not pretend to."""
+    job = _fresh(alice, clock, job_id="job-002", supersedes_job_id="job-001")
+    assert job.supersedes_job_id == "job-001"

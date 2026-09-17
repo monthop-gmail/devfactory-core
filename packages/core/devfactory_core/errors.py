@@ -124,6 +124,51 @@ class ExpiredApproval(JobStateMachineError):
         )
 
 
+class UnknownSupersededDecision(JobStateMachineError):
+    """A decision cites a predecessor that is not one of this job's own.
+
+    ``approval/v1`` v1.1.0 hands the producer five invariants that JSON Schema
+    cannot check: the cited approval must exist, share the tenant, share the
+    subject, not point at itself, and not form a cycle.
+
+    One check covers all five. Decisions about a job live on that job, so
+    requiring the citation to name a decision already recorded here gives
+    existence, tenant and subject together; a freshly minted id cannot be cited
+    before it exists, which rules out self-reference and cycles.
+
+    The default path — citing this job's previous decision — satisfies it
+    without the caller doing anything. This fires only when a caller supplies an
+    id by hand, which is the one way the guarantee could have been bypassed.
+    """
+
+    def __init__(self, job_id: str, cited: str, known: list[str]) -> None:
+        self.job_id = job_id
+        self.cited = cited
+        self.known = known
+        seen = ", ".join(known) if known else "ยังไม่มีคำตัดสินใดถูกบันทึกกับงานนี้"
+        super().__init__(
+            f"job {job_id}: decision cites {cited!r}, which is not a decision recorded "
+            f"on this job — known: {seen}"
+        )
+
+
+class SelfSupersedingJob(JobStateMachineError):
+    """A job names itself as the one it replaces.
+
+    RFC-0007 Amendment 2: recovery is a *new* job naming the settled one it
+    replaces. A job that cites itself claims to be its own predecessor, which
+    makes the chain of attempts unreadable — and it is the one part of that rule
+    checkable without a registry of jobs, so it is checked.
+    """
+
+    def __init__(self, job_id: str) -> None:
+        self.job_id = job_id
+        super().__init__(
+            f"job {job_id}: supersedes_job_id names the job itself — recovery is a new "
+            f"job naming the one it replaces, not a job naming itself"
+        )
+
+
 class MissingAuthority(JobStateMachineError):
     """A transition that *is* a governance decision must name who made it.
 

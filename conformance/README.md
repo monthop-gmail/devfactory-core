@@ -19,6 +19,12 @@ pointers, so this file runs the real engine and validates what comes out of it.
 
 ## What it does
 
+0. Checks that our own manifests parse and carry the keys their readers depend on.
+   Added after `platform-contract.yaml` was left unparseable by an edit and nothing
+   here noticed — every other check in this file reads `contract-semantics.yaml`
+   and none opens the other manifest, so the first thing to go red would have been
+   `agent-platform`'s drift check, which fetches it. A mistake of ours would have
+   surfaced as a failure in someone else's repository.
 1. Reads [`pinned.yaml`](pinned.yaml) — the `agent-platform` commit this repository
    conforms to. The schema cache key includes that commit, so bumping the pin cannot
    silently reuse the previous contract's files.
