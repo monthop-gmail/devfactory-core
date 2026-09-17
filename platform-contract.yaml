@@ -19,29 +19,32 @@ contracts:
 
 conformance:
   status: passing
-  last_verified: 2026-08-19   # รันกับ pin 3a01ab9 (approval/v1 v1.1.0) — passed=20 FAIL=0
+  last_verified: 2026-09-17   # รันกับ pin a5138dfe — passed=25 FAIL=0
 
   # ADR-0006 บังคับ consumer 3 ข้อ — ครบแล้วทั้งสาม:
   #   1. manifest        ไฟล์นี้
   #   2. conformance test ใน CI ที่ validate payload จริง
   #                      conformance/payload_check.py — รัน scenario ผ่าน job state
-  #                      machine และ event log จริง แล้ว validate event 56 ตัว
+  #                      machine และ event log จริง แล้ว validate event 61 ตัว
   #                      กับ event/v1 ที่ pin ไว้ และ decision 8 ใบกับ approval/v1
   #                      · ไม่มี fixture ที่เขียนขึ้นเพื่อให้ schema ผ่าน
   #                      · ตรวจ "ชื่อ" field ของ approval ด้วย เพราะ approval/v1 ไม่ได้ปิด
   #                        additionalProperties — field ที่เราตั้งชื่อเองจึง valid เงียบ ๆ
-  #   3. release gate    job `core` และ `conformance` ใน .github/workflows/test.yml
-  #                      รันทุก PR
+  #   3. release gate    job `core` · `conformance` · `simulation` ใน
+  #                      .github/workflows/test.yml รันทุก PR และเป็น required
+  #                      status check ของ branch protection ตั้งแต่ 2026-08-22
+  #                      พร้อม enforce_admins — test แดงแล้ว merge ไม่ได้จริง
+  #                      ไม่ใช่แค่เขียนไว้ (ทดสอบด้วยการ push ตรงเข้า main แล้วถูกปฏิเสธ)
   #
-  # ⚠️ ข้อ 3 จะบล็อกการ merge ได้จริงต่อเมื่อเปิด branch protection แล้วตั้ง check
-  #    ทั้งสองเป็น required — เป็น repo setting ไม่ใช่สิ่งที่ไฟล์ในนี้ยืนยันได้
+  # และตรวจ leaf ทุกใบว่าเป็นข้อความที่ประกาศไว้หรือเป็นตัวชี้ (rfcs/0013)
+  # โดยอ่านการประกาศจาก contract-semantics.yaml ไม่ได้ถือรายการของตัวเอง
   #
   # นอกจาก schema แล้ว payload_check ยังตรวจ guarantee ของ event/v1 อีก 8 ข้อ
   # ที่ JSON Schema ตรวจไม่ได้ — append-only · no silent state change · subject
   # ตอบได้เสมอ · ไม่ปลอม job_id · reject tenant ที่ resolve ไม่ได้ · คง source
   # ของ external · ไม่เก็บ reasoning · tenant partition ไม่ปนกัน
 
-pinned_contracts_commit: 3a01ab9d0a68594463382b0ec618dc07ccf6408c   # conformance/pinned.yaml
+pinned_contracts_commit: a5138dfe8f152756a789c43495e95eb64f82dafb   # conformance/pinned.yaml
 
 # ช่องว่างจาก consumer pilot ของ agent-platform และ RFC ที่ปิดแต่ละข้อ
 # รายละเอียดเต็ม: agent-platform/architecture/consumer-devfactory-core.md
@@ -94,9 +97,6 @@ blocking:
 
 # ที่ยังเหลือจริง ๆ ตอนนี้คือ code — ไม่ใช่เอกสาร
 remaining:
-  - เปิด branch protection แล้วตั้ง check ของ workflow test เป็น required
-    เพื่อให้ release gate บล็อกการ merge ได้จริง (ADR-0006 ข้อ 3)
-  - end-to-end simulation (issue #7)
   - Job.decide ยังรับ supersedes_decision_id ที่ caller ส่งมาเองโดยไม่ตรวจ 4 ข้อที่
     approval/v1 v1.1.0 ฝากไว้กับผู้ผลิต (ใบที่อ้างต้องมีจริง · tenant เดียวกัน ·
     subject เดียวกัน · ห้ามชี้ตัวเอง) — ทางเดิน default ทำครบอยู่แล้ว จึงยังไม่มี payload
