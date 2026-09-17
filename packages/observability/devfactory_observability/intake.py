@@ -126,9 +126,16 @@ def accept_external(
     actor = payload.get("actor")
     principal = None
     if isinstance(actor, dict) and actor.get("type") and actor.get("id"):
-        principal = Principal(
-            type=actor["type"], id=actor["id"], display_name=actor.get("display_name")
-        )
+        # ``display_name`` is deliberately not taken. RFC-0013: our log holds
+        # pointers unless a leaf is declared, and that rule does not get an
+        # exception for text someone else sent us — an undeclared person-name
+        # written into an append-only store is the same undeletable second copy
+        # whichever system typed it.
+        #
+        # Nothing is lost that the sender does not still hold: `type` and `id`
+        # identify the actor, and the sender's own record keeps the name under
+        # its own access control.
+        principal = Principal(type=actor["type"], id=actor["id"])
 
     workspace_id = payload.get("workspace_id")
     if workspace_id is not None:

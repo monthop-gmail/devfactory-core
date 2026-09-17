@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from conftest import drive
-from devfactory_core import Event, EventType, Job, JobState
+from devfactory_core import Event, EventType, Job, JobState, Principal
 from devfactory_core.events import new_event_id
 from devfactory_core.identity import ID_PATTERN
 
@@ -400,3 +400,49 @@ def test_the_engine_emits_no_sequence_of_its_own(alice, clock):
     """
     job = drive(_fresh(alice, clock), JobState.COMPLETED, alice)
     assert all("sequence" not in e.as_payload() for e in job.events)
+
+
+# ---- audit records hold pointers, not people's names — RFC-0013 -------------
+
+
+def test_no_event_carries_a_persons_name(alice, clock):
+    """The finding that started RFC-0013, as a test that cannot silently lapse.
+
+    ``care-agent-platform`` reported a real name in 112 of 112 events; the first
+    walk of this engine's own leaves found it in 8 of 8.
+    """
+    import json
+
+    named = Principal("human", "alice", display_name="Alice Example")
+    job = Job(
+        job_id="job-1", tenant_id="acme", workspace_id="ws", principal=named, clock=clock
+    )
+    job.submit_for_governance(reason="ready")
+    job.approve(authority=named, reason="approved")
+    rendered = json.dumps([e.as_payload() for e in job.events], ensure_ascii=False)
+    assert "Alice Example" not in rendered
+    assert "display_name" not in rendered
+
+
+def test_the_actor_is_still_identifiable(alice, clock):
+    """Dropping the name must not cost the answer to *who acted*."""
+    job = _fresh(alice, clock)
+    actor = job.events[0].as_payload()["actor"]
+    assert actor == {"type": "human", "id": "alice"}
+
+
+def test_the_name_can_still_be_rendered_when_explicitly_asked_for():
+    """Cut at the wire, not at the type.
+
+    A caller that has a legitimate, declared reason to render the name asks for
+    it and is visible in review for doing so — which is the whole shape of
+    RFC-0013: not a prohibition, a declaration someone sees.
+    """
+    alice = Principal("human", "alice", display_name="Alice Example")
+    agent = Principal("agent", "planner-1", display_name="Planner", on_behalf_of=alice)
+    assert agent.as_payload(include_display_name=True) == {
+        "type": "agent",
+        "id": "planner-1",
+        "display_name": "Planner",
+        "on_behalf_of": {"type": "human", "id": "alice", "display_name": "Alice Example"},
+    }
