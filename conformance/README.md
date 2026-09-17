@@ -73,6 +73,45 @@ retired entry left in machinery still runs. The record of what we once deviated 
 and why belongs in `platform-contract.yaml` under `gaps:`, which is documentation and
 marks closed entries `status: resolved` instead of deleting them.
 
+## Is the pin still current — `pin_freshness.py`
+
+```bash
+python3 conformance/pin_freshness.py
+python3 conformance/pin_freshness.py --today 2026-12-01   # to exercise the thresholds
+```
+
+Runs on a schedule rather than on push or pull request, because the event worth
+noticing is **upstream moving while nothing here changes** — which no trigger tied
+to this repository can see. It is the same reason `agent-platform`'s drift check
+has a cron.
+
+The gap this closes was measured, not imagined. The pin sat on one commit for 29
+days while `agent-platform` moved 34 commits ahead, and three checks were running
+the whole time without being able to say so: their drift check asks whether
+`semantics_version` agrees, and it did; this directory's `payload_check` asks
+whether payloads match the pinned schemas, and they did; our push and pull-request
+workflows fire on changes here, and the change was elsewhere.
+
+**Being behind is not a fault.** A pin that stays put because upstream has not
+moved is a correct pin, and the check says `ok` for it at any age. What it reports
+is *behind and left there*, which means real payloads are being validated against
+an old copy of the contract.
+
+Thresholds live in `pinned.yaml` under `freshness`, not in the script — declared
+where a reader of the manifest can see them, for the same reason RFC-0013 requires
+a declaration to be the artefact its checker reads. `fail_after_days: 60` is not an
+invented number: ADR-0006 treats a `last_verified` older than 90 days as `unknown`
+regardless of what the file says, so 60 leaves time to act before our own
+`conforming` status lapses on its own.
+
+**A `WARN` is only seen by someone who looks.** GitHub notifies on a red run, not
+on a green one with an annotation, so the threshold that actually reaches a person
+is the failure at 60 days. Read the warning as a note in the log, not as evidence
+anyone was told.
+
+An unreachable GitHub is not a verdict — the check reports it and exits `0`. A
+check that goes red when the network is down teaches people to ignore it.
+
 ## Upgrading the pin
 
 Always a separate PR: change `commit` in `pinned.yaml`, run the check, fix whatever
