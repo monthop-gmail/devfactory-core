@@ -1,7 +1,7 @@
 # RFC-0008: External Event Intake
 
 ## Status
-Draft — Architecture Owner direction agreed 2026-08-17 · pending maintainer approval per `GOVERNANCE.md`
+Accepted — direction agreed 2026-08-17 · merged to `main` 2026-08-18 in [#10](https://github.com/monthop-gmail/devfactory-core/pull/10)
 
 Amends [RFC-0003](0003-audit-event-log-schema.md). Closes gap 5 of
 [issue #8](https://github.com/monthop-gmail/devfactory-core/issues/8) and carries the

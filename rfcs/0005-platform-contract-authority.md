@@ -1,7 +1,7 @@
 # RFC-0005: Platform Contract Authority and Plane Boundaries
 
 ## Status
-Draft — Architecture Owner direction agreed 2026-08-17 · pending maintainer approval per `GOVERNANCE.md`
+Accepted — direction agreed 2026-08-17 · merged to `main` 2026-08-18 in [#10](https://github.com/monthop-gmail/devfactory-core/pull/10)
 
 Answers [issue #8](https://github.com/monthop-gmail/devfactory-core/issues/8), filed by the
 [`agent-platform`](https://github.com/monthop-gmail/agent-platform) team and tracked upstream as

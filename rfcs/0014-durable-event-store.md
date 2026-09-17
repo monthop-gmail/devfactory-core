@@ -1,7 +1,7 @@
 # RFC-0014: What a Durable Event Store Owes
 
 ## Status
-Draft — Architecture Owner direction agreed 2026-09-17 · pending maintainer approval per `GOVERNANCE.md`
+Accepted — direction agreed 2026-09-17 · merged to `main` 2026-09-17 in [#39](https://github.com/monthop-gmail/devfactory-core/pull/39)
 
 Defines the obligations a durable store must meet. **It does not choose one.**
 `CORE_BOUNDARY.md` permits *"interface / contract (ไม่ผูก tech)"* in v0.x and
@@ -92,7 +92,7 @@ independently arrived at for its own vendored schemas.
 | 1 | **Append-only.** A written record is never modified or removed. | `event/v1` guarantee |
 | 2 | **Tenant isolation at the storage layer.** Not a predicate on a shared table. | RFC-0006 |
 | 3 | **Append order is preserved and total within a tenant.** | replay reads order as given |
-| 4 | **Idempotent by `event_id`.** Re-appending a record already held is refused, not duplicated. | `EventLog.append` today, and issue #32 depends on it |
+| 4 | **Idempotent by `event_id` within a tenant.** Re-appending a record that tenant already holds is refused, not duplicated. | `EventLog.append` today, and issue #32 depends on it |
 | 5 | **A digest over the append order of one tenant.** | RFC-0012 Decision 4 |
 
 Obligation 4 is load-bearing beyond this repository. The #32 thread established
@@ -100,6 +100,20 @@ that re-reading a producer's whole feed is safe **because** duplicates are refus
 at our boundary — which is what allows a consumer to skip keeping a cursor, and
 what made "cursor is an optimisation, not a correctness requirement" true. A store
 that allowed duplicates would silently withdraw that.
+
+> **Correction (implementation, 2026-09-17).** Obligation 4 originally read
+> *"idempotent by `event_id`"* with no scope named, and the scope is not free to
+> choose: obligations 2 and 4 decide it together. A single index of seen ids
+> shared by every tenant is a shared structure, and it makes `append` answer the
+> question `read` refuses to answer — write a guessed id into an empty tenant,
+> and whether it is refused tells you another tenant holds it. It also could not
+> be built: obligation 2 gives each tenant its own physical scope, leaving a
+> global index nowhere to live that does not cross the boundary.
+>
+> The reference implementation had the global form, and the conformance suite
+> written for step 3 is what found it. Scoping it per tenant changed no test that
+> existed, because `event_id` is unique by construction — which is exactly why
+> nothing had noticed.
 
 ### What obligation 2 rules out
 

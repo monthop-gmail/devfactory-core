@@ -1,7 +1,7 @@
 # RFC-0012: Every Terminal Emits a Closing Record
 
 ## Status
-Draft — pending maintainer approval per `GOVERNANCE.md`
+Accepted — merged to `main` 2026-08-21 in [#28](https://github.com/monthop-gmail/devfactory-core/pull/28)
 
 Answers [issue #26](https://github.com/monthop-gmail/devfactory-core/issues/26), which
 [agent-platform#23](https://github.com/monthop-gmail/agent-platform/issues/23) and

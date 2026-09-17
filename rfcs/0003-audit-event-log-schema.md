@@ -1,7 +1,7 @@
 # RFC-0003: Audit & Event Log Schema
 
 ## Status
-Draft
+Accepted — merged to `main` 2026-02-18 ([`d23cea4`](https://github.com/monthop-gmail/devfactory-core/commit/d23cea4))
 
 **Amended by [RFC-0008](0008-external-event-intake.md)** — `job_id` becomes
 optional with a required subject, and `tenant_id` / `correlation_id` are added.

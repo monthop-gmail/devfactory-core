@@ -93,3 +93,9 @@ jobs:
 
       - name: Payload conformance
         run: python3 conformance/payload_check.py
+
+      # RFC-0014 step 3. Runs against the in-memory reference implementation,
+      # which is the point: a durable store added later runs the same suite with
+      # --implementation and fails here rather than in production.
+      - name: Event store contract
+        run: python3 conformance/store_contract.py
