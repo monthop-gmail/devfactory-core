@@ -48,10 +48,32 @@ class Principal:
             raise ValueError(f"principal type must be human, agent, or service — got {self.type!r}")
         validate_id("principal.id", self.id)
 
-    def as_payload(self) -> dict:
+    def as_payload(self, *, include_display_name: bool = False) -> dict:
+        """Render for the wire. ``display_name`` is left out unless asked for.
+
+        RFC-0013: a leaf that may hold human text has to be declared, and every
+        other leaf is a pointer. A person's real name is human text, and it was
+        in every audit record this engine had ever written — the same finding
+        ``care-agent-platform`` reported from 112 real events, and the reason
+        ADR-0031 exists.
+
+        The default is off rather than on because the field is supplied by the
+        contract rather than filled by the domain, which is exactly why it went
+        unnoticed: it looked like the platform's business rather than ours.
+        ``id`` and ``type`` already answer *who acted*; the name answers nothing
+        an auditor cannot reach through the id, and it cannot be deleted once
+        written.
+
+        Callers that need it in process still have :attr:`display_name`.
+        """
         payload: dict = {"type": self.type, "id": self.id}
-        if self.display_name is not None:
+        if include_display_name and self.display_name is not None:
             payload["display_name"] = self.display_name
         if self.on_behalf_of is not None:
-            payload["on_behalf_of"] = self.on_behalf_of.as_payload()
+            # The chain is rendered under the same rule — a nested principal is
+            # a person too, and this is where the reference producer's first cut
+            # missed one.
+            payload["on_behalf_of"] = self.on_behalf_of.as_payload(
+                include_display_name=include_display_name
+            )
         return payload

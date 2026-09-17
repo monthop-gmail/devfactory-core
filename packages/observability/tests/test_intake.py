@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import json
+
 import pytest
 
 from devfactory_core import EventType
@@ -149,6 +151,7 @@ def test_a_known_type_is_recognised(external, clock):
 
 
 def test_actor_workspace_and_correlation_are_carried(external, clock):
+    """The actor arrives as a pointer — `display_name` is not taken (RFC-0013)."""
     event = accept_external(
         external(
             workspace_id="ws-field",
@@ -160,11 +163,49 @@ def test_actor_workspace_and_correlation_are_carried(external, clock):
     payload = event.as_payload()
     assert payload["workspace_id"] == "ws-field"
     assert payload["correlation_id"] == "corr-1"
-    assert payload["actor"] == {
-        "type": "service",
-        "id": "navi-ims",
-        "display_name": "Navi IMS",
+    assert payload["actor"] == {"type": "service", "id": "navi-ims"}
+
+
+def test_an_inbound_display_name_is_not_stored(external, clock):
+    """Our log holds pointers unless a leaf is declared, and that rule has no
+    exception for text another system sent us.
+
+    An undeclared person-name written into an append-only store is the same
+    undeletable second copy whichever system typed it. Nothing is lost that the
+    sender does not still hold under its own access control.
+    """
+    event = accept_external(
+        external(actor={"type": "human", "id": "somebody", "display_name": "ชื่อจริงของคน"}),
+        clock=clock,
+    )
+    assert event.actor is not None
+    assert event.actor.display_name is None
+    assert "display_name" not in json.dumps(event.as_payload(), ensure_ascii=False)
+
+
+def test_a_nested_delegation_chain_is_also_a_pointer(external, clock):
+    """The chain is where the reference producer's first cut missed one."""
+    from devfactory_core import Principal
+
+    chain = Principal(
+        "agent", "planner-1", display_name="Planner",
+        on_behalf_of=Principal("human", "alice", display_name="Alice Example"),
+    )
+    rendered = chain.as_payload()
+    assert rendered == {
+        "type": "agent",
+        "id": "planner-1",
+        "on_behalf_of": {"type": "human", "id": "alice"},
     }
+
+
+def test_the_name_is_still_available_in_process(external, clock):
+    """Cut at the wire, not at the type — callers that need it still have it."""
+    from devfactory_core import Principal
+
+    p = Principal("human", "alice", display_name="Alice Example")
+    assert p.display_name == "Alice Example"
+    assert p.as_payload(include_display_name=True)["display_name"] == "Alice Example"
 
 
 def test_an_incomplete_actor_is_dropped_rather_than_half_built(external, clock):

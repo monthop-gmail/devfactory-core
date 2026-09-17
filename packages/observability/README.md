@@ -75,6 +75,7 @@ bad one would lose history that actually happened.
 | malformed `event_type` | `MalformedEventType` — see below |
 | `sequence` that is not an integer ≥ 1 | `MalformedSequence` |
 | `sequence` present and well formed | **kept untouched** — it is the producer's order, not ours to recompute |
+| `actor.display_name` | **not taken** — RFC-0013: the log holds pointers unless a leaf is declared |
 
 ### Unknown is kept; malformed is refused
 

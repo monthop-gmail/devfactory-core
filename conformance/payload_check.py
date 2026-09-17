@@ -631,6 +631,83 @@ def check_trail_closure(log, jobs) -> None:
         ok("closure", f"trail ที่ถูกตัดท้ายถูกจับได้ ({victim.state.value})")
 
 
+def leaf_paths(value, path: str = ""):
+    """Walk to values with no children. RFC-0013 clause 1.
+
+    Read at the level of top-level fields, no event in existence passes —
+    ``actor``, ``source``, ``transition``, ``policy_result`` and ``consent`` are
+    all objects. The clause is part of the invariant for that reason, and this
+    walker is what makes it checkable rather than advisory.
+    """
+    if isinstance(value, dict):
+        for key, child in value.items():
+            yield from leaf_paths(child, f"{path}.{key}" if path else key)
+    elif isinstance(value, list):
+        for child in value:
+            yield from leaf_paths(child, f"{path}[]")
+    else:
+        yield path, value
+
+
+def load_declaration() -> dict:
+    """Read the declaration from the manifest — not from a copy kept here.
+
+    RFC-0013: the declaration has to be the artefact the checker reads. A list
+    maintained in two places drifts, which is the same failure the RFC rejects a
+    central key list for.
+    """
+    import yaml
+
+    manifest = yaml.safe_load((ROOT / "contract-semantics.yaml").read_text(encoding="utf-8"))
+    return (manifest["contracts"]["event"] or {}).get("text_fields") or {}
+
+
+def check_text_fields(log) -> None:
+    """Every string leaf is either declared human text, or a pointer. RFC-0013."""
+    declaration = load_declaration()
+    declared = {entry["leaf"] for entry in declaration.get("declared") or []}
+    pointers = set(declaration.get("pointers") or [])
+    if not declared and not pointers:
+        fail("text", "contract-semantics.yaml ไม่มีบล็อก text_fields — checker ไม่มีอะไรให้อ่าน")
+        return
+
+    seen: dict[str, int] = {}
+    for tenant in log.tenants():
+        for payload in log.payloads(tenant):
+            for path, value in leaf_paths(payload):
+                if isinstance(value, str) and value:
+                    seen[path] = seen.get(path, 0) + 1
+
+    undeclared = sorted(set(seen) - declared - pointers)
+    if undeclared:
+        fail(
+            "text",
+            f"leaf ที่ไม่ได้ประกาศและไม่ได้อยู่ในรายการตัวชี้: {undeclared} "
+            f"— ต้องเพิ่มลง text_fields ใน contract-semantics.yaml แล้วให้คนรีวิว",
+        )
+    else:
+        ok("text", f"{len(seen)} string leaf อยู่ในรายการที่ประกาศไว้ทั้งหมด")
+
+    # A declaration that names leaves the payload no longer has is a declaration
+    # nobody has re-read. Same failure as a waiver left behind after its cause.
+    stale = sorted((declared | pointers) - set(seen))
+    if stale:
+        print(f"  note  text: ประกาศไว้แต่ไม่พบใน scenario: {stale}")
+
+    for entry in declaration.get("declared") or []:
+        if not entry.get("retention_layer"):
+            fail("text", f"{entry['leaf']} ประกาศแล้วแต่ไม่บอกว่ากฎการเก็บอยู่ชั้นไหน (rfcs/0013 ข้อ 3)")
+            return
+    ok("text", f"{len(declared)} leaf ที่ประกาศ บอกชั้นของกฎการเก็บครบทุกตัว")
+
+    # The finding that started this: a person's name in every record ever written.
+    names = sorted(p for p in seen if p.endswith("display_name"))
+    if names:
+        fail("text", f"ยังมีชื่อคนใน payload: {names}")
+    else:
+        ok("text", "ไม่มี display_name ใน payload — ตัดที่จุด emit ครอบทั้ง actor และ authority")
+
+
 def check_guarantees(log, jobs, external) -> None:
     # append-only: the digest of a prefix must not change as the log grows
     before = log.digest("acme")
@@ -779,9 +856,11 @@ def main() -> int:
     check_decisions(log, jobs, approval_validator, approval_schema)
     print("\n[3] ใบปิดท้ายของทุก terminal — RFC-0012")
     check_trail_closure(log, jobs)
-    print("\n[4] guarantee ที่ JSON Schema ตรวจไม่ได้")
+    print("\n[4] leaf ที่ถือข้อความของคน — RFC-0013")
+    check_text_fields(log)
+    print("\n[5] guarantee ที่ JSON Schema ตรวจไม่ได้")
     check_guarantees(log, jobs, external)
-    print("\n[5] ช่องว่างที่รู้ตัว — ต้องมี issue และวันหมดอายุ")
+    print("\n[6] ช่องว่างที่รู้ตัว — ต้องมี issue และวันหมดอายุ")
     check_gap_expiry(pinned.get("known_gaps") or [], args.today)
 
     fails = [f for f in findings if f[0] == "FAIL"]

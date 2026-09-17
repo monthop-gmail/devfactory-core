@@ -13,12 +13,16 @@
 # ที่มาฉบับเต็มเป็น prose อยู่ใน rfcs/ — ถ้าไฟล์นี้ขัดกับ RFC ให้ถือ RFC เป็นหลัก
 # แล้วเปิด issue เพราะแปลว่าไฟล์นี้ผิด
 
-semantics_version: "1.2"
+semantics_version: "1.3"
 owner: devfactory-core
 authority: rfcs/0005-platform-contract-authority.md
 amended_by: rfcs/0009-vocabulary-extension.md   # Rule 2 — เพิ่ม event type เป็น additive แล้ว
 license: MIT
 
+# 1.2 → 1.3 (2026-09-17)
+#   เพิ่ม invariant: leaf ที่อาจถือข้อความของคนต้องประกาศ ที่เหลือเป็นตัวชี้ (rfcs/0013)
+#   contract ที่ derive ต้องอัปเดต derived_from.semantics_version เป็น "1.3"
+#
 # 1.1 → 1.2 (2026-08-21)
 #   เพิ่ม guarantee: ทุกการจบแบบ terminal ต้องออกใบปิดท้าย (rfcs/0012)
 #   contract ที่ derive ต้องอัปเดต derived_from.semantics_version เป็น "1.2"
@@ -57,7 +61,7 @@ derived_from_block_template: |
   derived_from:
     repo: monthop-gmail/devfactory-core
     manifest: contract-semantics.yaml
-    semantics_version: "1.2"
+    semantics_version: "1.3"
     rfcs:
       - rfcs/0002-governance-decision-contract.md
     license: MIT
@@ -214,6 +218,93 @@ contracts:
         - external event ต้องคง source ไว้ให้รู้ตลอดไปว่ามาจากข้างนอก
         - ห้ามเก็บ private reasoning / chain-of-thought เป็น audit record — เก็บ structured metadata แทน
         - trace ที่ไม่มี step ย่อยถือว่าถูกต้อง · execution ที่ไม่มี step event ไม่ได้แปลว่ามันไม่ได้ทำอะไร
+
+        # rfcs/0013 — ขอมาโดย agent-platform ตาม Rule 2 พร้อมหลักฐานจาก audit จริง 112 ใบ
+        # ของ care-agent-platform · เป็น "ต้องประกาศ" ไม่ใช่ "ห้ามมี" เพราะกฎแบบห้าม
+        # จะทำให้ระบบที่บันทึกเหตุผลไว้ถูกต้องกลายเป็น non-conformant แล้วคนจะแก้ด้วยการ
+        # ลบเหตุผลทิ้ง ซึ่งทำลายความสามารถของ audit ในการตอบคำถามที่สำคัญที่สุดของโดเมนนั้น
+        - >-
+          leaf ที่อาจถือข้อความของคนต้องถูกประกาศไว้ในสัญญา ที่เหลือทุก leaf เป็นตัวชี้
+          (id · code · ตัวเลข · timestamp · boolean · enum) · 3 ข้อ:
+          (1) กฎนี้ใช้ที่ระดับ leaf ไม่ใช่ field ระดับบนสุด — object กับ array เป็นภาชนะ
+          ไม่ใช่ค่า ให้ไล่ลงไปจนถึงค่าที่ไม่มีลูก
+          (2) leaf ที่อาจถือข้อความของคนต้องประกาศ
+          (3) leaf ที่ประกาศแล้วต้องบอกว่ากฎการเก็บและการลบของมันอยู่ที่ชั้นไหน
+          — store ที่เป็น append-only ลบรายฟิลด์ไม่ได้ และต้องบอกว่าทำอะไรแทน
+          · บังคับได้เฉพาะฝั่งผู้ผลิต: validator บอกได้ว่ามี key อะไร แต่บอกไม่ได้ว่าใครพิมพ์ค่านั้น
+
+    # ℹ️ การประกาศตาม rfcs/0013 ข้อ 2 และ 3 — อยู่นอก frozen เพราะเป็นของฝั่งเรา
+    # ไม่ใช่ส่วนหนึ่งของสัญญา · RFC กำหนดว่าการประกาศต้องเป็นสิ่งที่ checker อ่านจริง
+    # conformance/payload_check.py อ่านบล็อกนี้ ไม่ได้ถือรายการของตัวเอง
+    text_fields:
+      declared:
+        - leaf: transition.reason
+          who_writes_it: คนที่สั่งให้ transition นั้นเกิด
+          why_it_cannot_be_a_pointer: >-
+            RFC-0001 บังคับให้ FAILED · CANCELLED · TIMED_OUT มี reason metadata
+            และไม่มีตารางโดเมนในระบบนี้ที่เก็บประโยคนั้นไว้ให้ชี้ไปหา
+          retention_layer: >-
+            ลบรายฟิลด์ไม่ได้ — event/v1 เป็น append-only · EventLog ของ repo นี้อยู่ใน
+            หน่วยความจำล้วน การลบจึงเกิดตอน process ตายเท่านั้น และยังไม่มีชั้น store
+            หรือ tenant ที่ลบได้จริงในระบบนี้วันนี้
+        - leaf: metadata.approval.reason
+          who_writes_it: ผู้มีอำนาจที่ออกคำตัดสิน
+          why_it_cannot_be_a_pointer: >-
+            approval/v1 บังคับ reason ให้ minLength 1 — คำตัดสินที่ไม่มีเหตุผลไม่ auditable
+          retention_layer: เหมือน transition.reason
+      # ทุก leaf ที่เป็น string และไม่อยู่ใน declared ต้องอยู่ที่นี่ — ไม่มีข้อที่สาม
+      # leaf ใหม่ที่ไม่อยู่ทั้งสองรายการทำให้ CI แดง ซึ่งเป็นตัว ratchet ตาม rfcs/0013 ข้อ 2:
+      # "ก่อน: ใครพิมพ์ลงไปก็ไม่มีใครเห็น · หลัง: ต้องแก้สัญญาก่อน แล้วมีคนรีวิว"
+      pointers:
+        - actor.id
+        - actor.type
+        - correlation_id
+        - event_id
+        - event_type
+        - job_id
+        - metadata.approval.approval_id
+        - metadata.approval.authority.id
+        - metadata.approval.authority.type
+        - metadata.approval.decided_at
+        - metadata.approval.decision
+        - metadata.approval.expires_at
+        - metadata.approval.subject.id
+        - metadata.approval.subject.type
+        - metadata.approval.supersedes_approval_id
+        - metadata.approval.tenant_id
+        - metadata.approval.workspace_id
+        - metadata.record_type
+        - metadata.settled_as
+        - metadata.supersedes_job_id
+        - occurred_at
+        - source.kind
+        - source.system
+        - subject_id
+        - subject_type
+        - tenant_id
+        - transition.from
+        - transition.to
+        - workspace_id
+      cutover:
+        # rfcs/0013 Migration Plan — เกณฑ์คือ "ตั้งแต่จุดไหนไม่มีใบใหม่ที่ผิดกฎ"
+        # ไม่ใช่เปอร์เซ็นต์ที่แต่ละทีมรายงานเองแล้วไม่มีใครตรวจได้
+        from: rfcs/0013 · ตัด display_name ออกจากจุด emit
+        outstanding_before_it: >-
+          ไม่มี — EventLog อยู่ในหน่วยความจำ ไม่มี record ที่เขียนไว้ก่อนหน้าหลงเหลืออยู่จริง
+          · ต่างจาก producer ที่มี store ถาวร ซึ่งต้องประกาศว่าเหลืออะไรและทำอะไรกับมัน
+      removed_at_cutover:
+        - leaf: actor.display_name
+          found_in: ทุก event ที่ engine นี้เคยเขียน (8 จาก 8 ในการไล่ leaf ครั้งแรก)
+          note: >-
+            ตรงกับ 112 จาก 112 ที่ care-agent-platform รายงาน (ADR-0031)
+            · display_name เป็น optional ใน identity/v1 มาตั้งแต่ v1.0.0 จึงตัดได้ทันที
+            โดยยัง conform ไม่ต้องรอสัญญาเวอร์ชันใหม่
+        - leaf: metadata.approval.authority.display_name
+          note: เส้นทางที่สองที่ซ้อนอยู่ใน decision record — ตัดจุดเดียวครอบทั้งคู่
+        - leaf: actor.on_behalf_of.display_name
+          note: >-
+            chain ของการมอบอำนาจ — จุดที่การตัดครั้งแรกของ producer อ้างอิงพลาดไป
+            เราจึงตัดแบบ recursive ตั้งแต่ต้น
 
     platform_may_add_freely:
       - event type ใหม่                     # rfcs/0009 — เดิมเป็น semantic change
