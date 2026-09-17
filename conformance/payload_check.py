@@ -662,6 +662,40 @@ def load_declaration() -> dict:
     return (manifest["contracts"]["event"] or {}).get("text_fields") or {}
 
 
+def check_manifests() -> None:
+    """Our own manifests parse, and carry what their readers depend on.
+
+    Found the hard way: ``platform-contract.yaml`` was left unparseable by an edit
+    and nothing here noticed. Every check in this file reads
+    ``contract-semantics.yaml``; none of them opens the other manifest. The first
+    thing that would have gone red is ``agent-platform``'s drift check, which
+    fetches it — so a mistake of ours would have surfaced as a failure in someone
+    else's repository.
+
+    A YAML plain scalar cannot contain ": ", which is how it broke. Cheap to check,
+    and the alternative is finding out from a neighbour.
+    """
+    import yaml
+
+    expected = {
+        "platform-contract.yaml": ["contracts", "conformance", "registration"],
+        "contract-semantics.yaml": ["semantics_version", "contracts"],
+        "conformance/pinned.yaml": ["repo", "commit", "pinned_at", "schemas"],
+    }
+    for name, keys in expected.items():
+        path = ROOT / name
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            fail("manifest", f"{name} parse ไม่ได้: {str(exc).splitlines()[0]}")
+            continue
+        missing = [key for key in keys if key not in (document or {})]
+        if missing:
+            fail("manifest", f"{name} ขาดคีย์ที่ผู้อ่านพึ่งพา: {missing}")
+        else:
+            ok("manifest", f"{name} parse ได้และมีคีย์ครบ")
+
+
 def check_text_fields(log) -> None:
     """Every string leaf is either declared human text, or a pointer. RFC-0013."""
     declaration = load_declaration()
@@ -850,6 +884,8 @@ def main() -> int:
     approval_schema = as_json_schema(schemas[approval_id], pinned["non_schema_keys"])
 
     log, jobs, external = run_scenario()
+    print("\n[0] manifest ของเราเอง — parse ได้และมีคีย์ที่ผู้อ่านพึ่งพา")
+    check_manifests()
     print(f"\n[1] payload ที่ระบบผลิตจริง — {len(log)} event จาก {len(jobs)} job")
     check_payloads(log, validator, pinned.get("known_gaps") or [])
     print("\n[2] คำตัดสินที่ระบบผลิตจริง — approval/v1 (RFC-0002)")

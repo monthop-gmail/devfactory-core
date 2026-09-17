@@ -23,6 +23,7 @@ from devfactory_core import (
 )
 from devfactory_core.decision import new_decision_id
 from devfactory_core.errors import (
+    UnknownSupersededDecision,
     CrossTenantDecision,
     DecisionStateMismatch,
     ExecutionBeforeApproval,
@@ -270,15 +271,41 @@ def test_changing_your_mind_cites_the_decision_it_replaces(alice, reviewer, cloc
 
 
 def test_an_explicit_citation_wins_over_the_inferred_one(alice, reviewer, clock):
+    """An explicit citation still wins — but only over this job's own decisions.
+
+    This test used to carry "a decision made elsewhere" and assert it was kept,
+    which is the door approval/v1 v1.1.0 asks the producer to close: the cited
+    approval must exist, share the tenant, and share the subject.
+    """
     job = _at_the_gate(alice, clock)
-    earlier = new_decision_id()
+    first = job.decide(DecisionType.REJECT, authority=reviewer, reason="needs work")
+    job.transition(JobState.DRAFT)
+    job.submit_for_governance()
+    second = job.decide(DecisionType.REJECT, authority=reviewer, reason="still needs work")
+    job.transition(JobState.DRAFT)
+    job.submit_for_governance()
+
+    # Cite the first rather than the second, which the default would have chosen.
     record = job.decide(
         DecisionType.APPROVE,
         authority=reviewer,
-        reason="carrying a decision made elsewhere",
-        supersedes_decision_id=earlier,
+        reason="the original concern was the real one",
+        supersedes_decision_id=first.decision_id,
     )
-    assert record.supersedes_decision_id == earlier
+    assert record.supersedes_decision_id == first.decision_id
+    assert record.supersedes_decision_id != second.decision_id
+
+
+def test_a_citation_from_elsewhere_is_refused(alice, reviewer, clock):
+    """The door itself. One check closes all five of approval/v1's invariants."""
+    job = _at_the_gate(alice, clock)
+    with pytest.raises(UnknownSupersededDecision):
+        job.decide(
+            DecisionType.APPROVE,
+            authority=reviewer,
+            reason="carrying a decision made elsewhere",
+            supersedes_decision_id=new_decision_id(),
+        )
 
 
 def test_rejection_leaves_no_approval_behind(alice, reviewer, clock):

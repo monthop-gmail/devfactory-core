@@ -51,9 +51,11 @@ from .errors import (
     MissingPrincipal,
     MissingReason,
     SelfApproval,
+    SelfSupersedingJob,
     TerminalState,
     UnmappedDecision,
     WrongDecisionSubject,
+    UnknownSupersededDecision,
     WrongResumeState,
 )
 from .events import Event, EventType, new_event_id, utc_now
@@ -128,6 +130,13 @@ class Job:
             if supersedes_job_id is not None
             else None
         )
+        # The one part of RFC-0007 Amendment 2 checkable without a registry of
+        # jobs. Whether the cited job exists, shares this tenant, and settled
+        # without delivering needs both jobs in hand — Job.supersede() has them
+        # and enforces all of it; this path does not, and says so rather than
+        # implying the rest was checked.
+        if self._supersedes_job_id == self._job_id:
+            raise SelfSupersedingJob(self._job_id)
         self._clock = clock
 
         self._state = JobState.DRAFT
@@ -376,6 +385,28 @@ class Job:
             },
         )
 
+    def _cited_decision(self, supplied: str | None) -> str | None:
+        """Resolve what this decision cites, and refuse a citation it cannot hold up.
+
+        ``approval/v1`` leaves five invariants to the producer — the cited
+        approval must exist, share the tenant, share the subject, not point at
+        itself, and not form a cycle. Requiring the citation to name a decision
+        already recorded on *this* job satisfies all five at once: decisions
+        about a job live on that job, so existence carries tenant and subject
+        with it, and an id that does not exist yet cannot be cited, which rules
+        out self-reference and cycles.
+
+        Left alone, the citation is this job's previous decision — which is how
+        every path through the engine reaches it, and why the open door was never
+        walked through. It was still open.
+        """
+        if supplied is None:
+            return self._decisions[-1].decision_id if self._decisions else None
+        known = [record.decision_id for record in self._decisions]
+        if supplied not in known:
+            raise UnknownSupersededDecision(self._job_id, supplied, known)
+        return supplied
+
     # ---- named transitions -------------------------------------------------
     # These exist so the arguments a guard requires are visible in the call
     # signature rather than discovered at runtime.
@@ -434,11 +465,7 @@ class Job:
             # about this job, in this tenant, which is four of the five invariants
             # approval/v1 asks the producer to hold up. The fifth — no cycles — comes
             # free from a freshly minted decision_id.
-            supersedes_decision_id=(
-                supersedes_decision_id
-                if supersedes_decision_id is not None
-                else (self._decisions[-1].decision_id if self._decisions else None)
-            ),
+            supersedes_decision_id=self._cited_decision(supersedes_decision_id),
         )
         self.transition(target, reason=reason, principal=authority, decision=record)
         return record
