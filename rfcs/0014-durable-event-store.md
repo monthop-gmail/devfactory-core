@@ -1,7 +1,7 @@
 # RFC-0014: What a Durable Event Store Owes
 
 ## Status
-Draft — pending maintainer approval per `GOVERNANCE.md`
+Draft — Architecture Owner direction agreed 2026-09-17 · pending maintainer approval per `GOVERNANCE.md`
 
 Defines the obligations a durable store must meet. **It does not choose one.**
 `CORE_BOUNDARY.md` permits *"interface / contract (ไม่ผูก tech)"* in v0.x and
