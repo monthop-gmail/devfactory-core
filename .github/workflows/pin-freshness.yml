@@ -1,0 +1,60 @@
+name: pin freshness
+
+# ตรวจว่า pin ของ conformance/pinned.yaml ตามหลัง agent-platform อยู่นานแค่ไหน
+#
+# ทำไมต้องเป็น schedule: เหตุการณ์ที่ต้องจับคือ "ต้นทางขยับโดยที่ repo นี้ไม่มีอะไรเปลี่ยน"
+# ซึ่ง push และ pull_request จับไม่ได้โดยธรรมชาติ — เป็นเหตุผลเดียวกับ cron ของ
+# drift check ฝั่ง agent-platform
+#
+# ทำไม "ไม่" รันบน pull_request: มันจะทำให้ PR ที่ไม่เกี่ยวข้องพังด้วยเรื่องที่ไม่ใช่
+# ความผิดของมัน · pin ที่เก่าไม่ใช่ข้อบกพร่องของ PR ที่แก้ typo
+#
+# ⚠️ WARN เห็นได้เฉพาะคนที่เปิดดู — GitHub ส่งอีเมลเฉพาะตอน run แดง
+#    ตัวที่ไปถึงคนจริงคือ FAIL ที่ 60 วัน ซึ่งตั้งไว้ก่อนเส้น 90 วันของ ADR-0006
+#    ที่ทำให้สถานะ conforming ของเราหมดอายุเอง · อย่าอ่าน WARN ว่ามีใครถูกเตือนแล้ว
+
+on:
+  schedule:
+    # ทุกวัน 03:00 UTC — หลัง drift check ของ agent-platform (02:00) หนึ่งชั่วโมง
+    # เพื่อให้ถ้าทั้งคู่มีอะไรจะบอก มันมาเรียงกันไม่ใช่พร้อมกัน
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['conformance/pinned.yaml', '.github/workflows/pin-freshness.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: pip install --no-cache-dir 'pyyaml==6.*'
+
+      - name: Check pin freshness
+        id: check
+        run: |
+          set +e
+          python3 conformance/pin_freshness.py --json > result.txt 2>&1
+          status=$?
+          cat result.txt
+          {
+            echo '## pin freshness'
+            echo ''
+            echo '```'
+            cat result.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if grep -q '"verdict": "WARN"' result.txt; then
+            echo "::warning::pin ตามหลังต้นทางและเก่าเกินเกณฑ์เตือน — ดู job summary"
+          fi
+          exit $status
