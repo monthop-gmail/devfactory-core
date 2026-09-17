@@ -240,6 +240,44 @@ def run_scenario():
                 "source": {"system": "navi-ims"},
             }
         ),
+        # The real ADVISORY_ISSUED payload from issue #32, copied whole rather than
+        # reduced. RFC-0015 exists because the reduced stand-ins above — one with
+        # metadata={'record_type': ...} and one with none at all — kept the suite
+        # green while a payload that had been sitting in that issue since
+        # 2026-08-21 carried eight leaves nothing had ever looked at.
+        #
+        # Only ``tenant_id`` differs from the issue: the original says "default",
+        # and a third partition would change what the tenant-isolation guarantee
+        # is counting without testing anything this fixture is here to test. Every
+        # field that holds text is verbatim.
+        accept_external(
+            {
+                "correlation_id": "adv-care-team-51b8666986",
+                "event_id": "adv-care-team-51b8666986-1",
+                "event_type": "ADVISORY_ISSUED",
+                "metadata": {
+                    "ecosystem_as_of": "2026-08-22",
+                    "generated_by": {"model": "rule-engine", "provider": "offline"},
+                    "grounded": True,
+                    "priority": 5,
+                    "question": "ทีมเราควรทำอะไรต่อ?",
+                    "record_type": "ecosystem_advisory",
+                    "references": ["care-agent-platform", "one-ecosystem-view"],
+                    "team": "care-team",
+                    "title": "ทบทวน ecosystem.yaml ว่ายังตรงกับความจริง",
+                    "why": (
+                        "ทีม care-team ไม่มีงานค้างที่ graph มองเห็น — "
+                        "งานที่เหลือคือยืนยันว่าข้อมูลที่ใช้ตัดสินใจยังถูกต้อง"
+                    ),
+                },
+                "occurred_at": "2026-01-01T00:00:00Z",
+                "sequence": 1,
+                "source": {"kind": "external", "system": "ecosystem-intelligence"},
+                "subject_id": "adv-care-team-51b8666986-1",
+                "subject_type": "record",
+                "tenant_id": "acme",
+            }
+        ),
     ]
     log.extend(external)
     return log, jobs, external
@@ -662,6 +700,14 @@ def load_declaration() -> dict:
     return (manifest["contracts"]["event"] or {}).get("text_fields") or {}
 
 
+def load_external_declaration() -> dict:
+    """The producer list RFC-0015 declares. Same rule: read it, do not restate it."""
+    import yaml
+
+    manifest = yaml.safe_load((ROOT / "contract-semantics.yaml").read_text(encoding="utf-8"))
+    return (manifest["contracts"]["event"] or {}).get("external_text") or {}
+
+
 def check_manifests() -> None:
     """Our own manifests parse, and carry what their readers depend on.
 
@@ -696,8 +742,20 @@ def check_manifests() -> None:
             ok("manifest", f"{name} parse ได้และมีคีย์ครบ")
 
 
+def is_external(payload: dict) -> bool:
+    """RFC-0008 forces ``source.kind`` at intake, so this is the record's own word."""
+    source = payload.get("source") or {}
+    return isinstance(source, dict) and source.get("kind") == "external"
+
+
 def check_text_fields(log) -> None:
-    """Every string leaf is either declared human text, or a pointer. RFC-0013."""
+    """Every string leaf is either declared human text, or a pointer. RFC-0013.
+
+    Records this repository did not write are checked at the level of their
+    producer instead — RFC-0015. The split is not an exemption: a leaf outside
+    ``metadata`` still has to be a pointer on an inbound record, because arriving
+    from elsewhere says nothing about ``subject_id`` or ``occurred_at``.
+    """
     declaration = load_declaration()
     declared = {entry["leaf"] for entry in declaration.get("declared") or []}
     pointers = set(declaration.get("pointers") or [])
@@ -706,11 +764,13 @@ def check_text_fields(log) -> None:
         return
 
     seen: dict[str, int] = {}
+    external_seen: dict[str, int] = {}
     for tenant in log.tenants():
         for payload in log.payloads(tenant):
+            target = external_seen if is_external(payload) else seen
             for path, value in leaf_paths(payload):
                 if isinstance(value, str) and value:
-                    seen[path] = seen.get(path, 0) + 1
+                    target[path] = target.get(path, 0) + 1
 
     undeclared = sorted(set(seen) - declared - pointers)
     if undeclared:
@@ -720,11 +780,28 @@ def check_text_fields(log) -> None:
             f"— ต้องเพิ่มลง text_fields ใน contract-semantics.yaml แล้วให้คนรีวิว",
         )
     else:
-        ok("text", f"{len(seen)} string leaf อยู่ในรายการที่ประกาศไว้ทั้งหมด")
+        ok("text", f"{len(seen)} string leaf ในใบที่เราเขียน อยู่ในรายการที่ประกาศไว้ทั้งหมด")
+
+    # rfcs/0015: โครงสร้างของใบขาเข้ายังต้องเป็นตัวชี้ · เฉพาะใต้ metadata ที่เป็นของผู้ผลิต
+    structural = sorted(
+        path
+        for path in external_seen
+        if not path.startswith("metadata.") and path not in declared and path not in pointers
+    )
+    if structural:
+        fail(
+            "text",
+            f"leaf โครงสร้างในใบขาเข้าที่ไม่ได้ประกาศ: {structural} "
+            f"— การมาจากข้างนอกไม่ใช่ข้อยกเว้นให้ field ที่ไม่ได้อยู่ใต้ metadata",
+        )
+    elif external_seen:
+        ok("text", f"leaf โครงสร้างของใบขาเข้าเป็นตัวชี้ทั้งหมด ({len(external_seen)} leaf ที่พบ)")
 
     # A declaration that names leaves the payload no longer has is a declaration
     # nobody has re-read. Same failure as a waiver left behind after its cause.
-    stale = sorted((declared | pointers) - set(seen))
+    # Counted across both origins: a pointer that only ever appears on an inbound
+    # record is still in use, and reporting it as stale would invite its removal.
+    stale = sorted((declared | pointers) - set(seen) - set(external_seen))
     if stale:
         print(f"  note  text: ประกาศไว้แต่ไม่พบใน scenario: {stale}")
 
@@ -735,11 +812,119 @@ def check_text_fields(log) -> None:
     ok("text", f"{len(declared)} leaf ที่ประกาศ บอกชั้นของกฎการเก็บครบทุกตัว")
 
     # The finding that started this: a person's name in every record ever written.
-    names = sorted(p for p in seen if p.endswith("display_name"))
+    # Across both origins on purpose: intake refuses an inbound display_name, and
+    # this is the check that would notice if it ever stopped.
+    names = sorted(p for p in (set(seen) | set(external_seen)) if p.endswith("display_name"))
     if names:
         fail("text", f"ยังมีชื่อคนใน payload: {names}")
     else:
         ok("text", "ไม่มี display_name ใน payload — ตัดที่จุด emit ครอบทั้ง actor และ authority")
+
+
+def check_external_producers(log, today: str) -> None:
+    """Every inbound record's producer is declared, with a review date. RFC-0015.
+
+    The unit is the producer rather than the field. One entry per system is
+    satisfiable; one entry per field would turn our build red every time somebody
+    else changed their schema, and would have us assert what a field of theirs
+    holds.
+
+    An expired ``review_by`` fails, which answers the open question RFC-0015 left
+    with a reason that only became clear once the date was written: what lapses is
+    **our** obligation to re-read the entry, not the other repository's obligation
+    to publish a declaration. Extending it with a reason, or recording that they
+    now have one, is work on this side. And the alternative was already measured
+    here — a date nobody reads stops being a note about outstanding work and
+    becomes the permanent exemption ADR-0006 forbids.
+    """
+    declaration = load_external_declaration()
+    producers = {entry.get("system"): entry for entry in declaration.get("producers") or []}
+
+    systems: dict[str, int] = {}
+    for tenant in log.tenants():
+        for payload in log.payloads(tenant):
+            if not is_external(payload):
+                continue
+            system = (payload.get("source") or {}).get("system")
+            if system:
+                systems[system] = systems.get(system, 0) + 1
+
+    if not systems:
+        print("  note  external: ไม่มี external event ใน scenario — ไม่มีผู้ผลิตให้ตรวจ")
+        return
+
+    unknown = sorted(set(systems) - set(producers))
+    if unknown:
+        fail(
+            "external",
+            f"ผู้ผลิตที่ยังไม่ได้ประกาศ: {unknown} — ต้องเพิ่มลง external_text.producers "
+            f"ใน contract-semantics.yaml แล้วให้คนรีวิว (rfcs/0015)",
+        )
+    else:
+        ok("external", f"ผู้ผลิตทั้ง {len(systems)} รายถูกประกาศไว้: {sorted(systems)}")
+
+    for system in sorted(set(systems) & set(producers)):
+        entry = producers[system]
+        missing = [key for key in ("declaration", "retention_layer", "review_by") if not entry.get(key)]
+        if missing:
+            fail("external", f"{system}: รายการขาด {missing} — rfcs/0015 Decision 2")
+            continue
+        review_by = str(entry["review_by"])
+        if review_by < today:
+            fail(
+                "external",
+                f"{system}: review_by {review_by} เลยมาแล้ว (วันนี้ {today}) "
+                f"— กลับไปอ่านรายการแล้วต่ออายุพร้อมเหตุผล หรือบันทึกว่าตอนนี้เขามีใบประกาศแล้ว",
+            )
+        else:
+            ok(
+                "external",
+                f"{system}: declaration={entry['declaration']} · review_by={review_by}",
+            )
+
+
+def check_external_text_not_copied(log) -> None:
+    """No value from an inbound record's metadata appears in a field we write.
+
+    RFC-0015 Decision 3. This is the part of the rule we can actually enforce:
+    not what someone else's text contains, but that we are not the reason it
+    spreads. It passes trivially today because nothing copies — which is the
+    point of adding it now rather than after a convenience does.
+    """
+    borrowed: dict[str, str] = {}
+    for tenant in log.tenants():
+        for payload in log.payloads(tenant):
+            if not is_external(payload):
+                continue
+            for path, value in leaf_paths(payload.get("metadata") or {}):
+                if isinstance(value, str) and value:
+                    system = (payload.get("source") or {}).get("system")
+                    borrowed[value] = f"{system}:metadata.{path}"
+
+    if not borrowed:
+        print("  note  external: ไม่มีข้อความใน metadata ขาเข้า — ไม่มีอะไรให้ตามว่าถูกคัดไปไหม")
+        return
+
+    leaked: list[str] = []
+    for tenant in log.tenants():
+        for payload in log.payloads(tenant):
+            if is_external(payload):
+                continue
+            for path, value in leaf_paths(payload):
+                if isinstance(value, str) and value in borrowed:
+                    leaked.append(f"{path} = {value!r} (มาจาก {borrowed[value]})")
+
+    if leaked:
+        fail(
+            "external",
+            f"ค่าจาก metadata ขาเข้าปรากฏใน field ที่เราเขียน: {sorted(set(leaked))} "
+            f"— rfcs/0015 Decision 3 · ข้อความของเขาจะไปอยู่ใต้กฎการเก็บของเรา",
+        )
+    else:
+        ok(
+            "external",
+            f"ไม่มีค่าจาก metadata ขาเข้า ({len(borrowed)} ค่า) ปรากฏในใบที่เราเขียน",
+        )
 
 
 def check_guarantees(log, jobs, external) -> None:
@@ -894,9 +1079,12 @@ def main() -> int:
     check_trail_closure(log, jobs)
     print("\n[4] leaf ที่ถือข้อความของคน — RFC-0013")
     check_text_fields(log)
-    print("\n[5] guarantee ที่ JSON Schema ตรวจไม่ได้")
+    print("\n[5] ข้อความของผู้ผลิตคนอื่น — RFC-0015")
+    check_external_producers(log, args.today)
+    check_external_text_not_copied(log)
+    print("\n[6] guarantee ที่ JSON Schema ตรวจไม่ได้")
     check_guarantees(log, jobs, external)
-    print("\n[6] ช่องว่างที่รู้ตัว — ต้องมี issue และวันหมดอายุ")
+    print("\n[7] ช่องว่างที่รู้ตัว — ต้องมี issue และวันหมดอายุ")
     check_gap_expiry(pinned.get("known_gaps") or [], args.today)
 
     fails = [f for f in findings if f[0] == "FAIL"]
