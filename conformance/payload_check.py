@@ -768,16 +768,90 @@ def is_external(payload: dict) -> bool:
     return isinstance(source, dict) and source.get("kind") == "external"
 
 
-def load_carried_check() -> dict:
-    """The marker list RFC-0005 Rule 3 needs and nothing was reading."""
+def load_carried_checks() -> list[tuple[str, dict, dict]]:
+    """Every contract that declares one, with its frozen subtree beside it.
+
+    Returns (contract name, frozen, carried_check) so the checker never has to
+    know which contracts exist — adding one to the manifest is enough.
+    """
     import yaml
 
     manifest = yaml.safe_load((ROOT / "contract-semantics.yaml").read_text(encoding="utf-8"))
-    return (manifest["contracts"]["event"] or {}).get("carried_check") or {}
+    out = []
+    for name, contract in (manifest.get("contracts") or {}).items():
+        declaration = (contract or {}).get("carried_check")
+        if declaration:
+            out.append((name, (contract or {}).get("frozen") or {}, declaration))
+    return out
+
+
+def frozen_entries(frozen: dict, covers: list[str]) -> list[str]:
+    """The frozen items one carried_check is responsible for.
+
+    A list of strings contributes each string. A block with a
+    ``required_minimum`` contributes each value in it — that is what a set of
+    permitted values *is*, entry by entry.
+    """
+    entries: list[str] = []
+    for key in covers:
+        value = frozen.get(key)
+        if isinstance(value, list):
+            entries.extend(str(item) for item in value)
+        elif isinstance(value, dict) and value.get("required_minimum"):
+            entries.extend(str(item) for item in value["required_minimum"])
+    return entries
+
+
+def enum_values(node) -> set:
+    """Every value of every ``enum:`` in a schema document."""
+    found: set = set()
+    if isinstance(node, dict):
+        values = node.get("enum")
+        if isinstance(values, list):
+            found.update(str(v) for v in values)
+        for child in node.values():
+            found |= enum_values(child)
+    elif isinstance(node, list):
+        for child in node:
+            found |= enum_values(child)
+    return found
+
+
+def mapping_keys(node) -> set:
+    """Every mapping key in a schema document."""
+    found: set = set()
+    if isinstance(node, dict):
+        found.update(str(k) for k in node)
+        for child in node.values():
+            found |= mapping_keys(child)
+    elif isinstance(node, list):
+        for child in node:
+            found |= mapping_keys(child)
+    return found
+
+
+def marker_present(marker: dict, document: str, parsed) -> tuple[bool, str]:
+    """Is this marker carried, and by what test.
+
+    Plain text search is right for a rule written as prose — including one carried
+    in a comment, which is why the document is searched as text at all. It is wrong
+    for a single word: ``record`` matched ``approval/v1`` on the filename inside
+    ``0019-execution-records-its-approval.md`` and reported an enum value as
+    carried that was not there. So a marker whose subject is a value or a field
+    name says which it is, and gets an exact test.
+    """
+    needle = str(marker.get("carried_as") or "")
+    if not needle:
+        return False, "ไม่มี carried_as"
+    if marker.get("in_enum"):
+        return needle in enum_values(parsed), f"ค่าใน enum {needle!r}"
+    if marker.get("as_key"):
+        return needle in mapping_keys(parsed), f"คีย์ {needle!r}"
+    return needle in document, f"ข้อความ {needle!r}"
 
 
 def check_carried(pinned: dict, today: str) -> None:
-    """The derived contract carries the invariants this repository froze.
+    """Each derived contract carries the part of our frozen subtree it declares.
 
     RFC-0005 Rule 3 makes a derived contract state where it came from. Nothing
     checked that stating it and carrying it are the same thing — their drift check
@@ -793,79 +867,108 @@ def check_carried(pinned: dict, today: str) -> None:
     The document is searched as **text**, not as parsed YAML — a rule carried in a
     comment beside a vocabulary value is carried, and ``yaml.safe_load`` drops
     comments.
+
+    ``covers`` says which parts of ``frozen`` each entry is responsible for, and a
+    declaration that does not cover everything has to say so in ``not_covered_yet``.
+    Partial coverage stated is a note about outstanding work; partial coverage
+    unstated reads as "all of it was compared", which is how the first gap lasted
+    a day.
     """
     import yaml
 
-    declaration = load_carried_check()
-    markers = declaration.get("markers") or []
-    if not markers:
-        fail("carried", "contract-semantics.yaml ไม่มีบล็อก carried_check — checker ไม่มีอะไรให้อ่าน")
+    declarations = load_carried_checks()
+    if not declarations:
+        fail("carried", "contract-semantics.yaml ไม่มีบล็อก carried_check เลย — checker ไม่มีอะไรให้อ่าน")
         return
 
-    manifest = yaml.safe_load((ROOT / "contract-semantics.yaml").read_text(encoding="utf-8"))
-    frozen = (manifest["contracts"]["event"] or {}).get("frozen") or {}
-    entries = list(frozen.get("guarantees") or []) + list(frozen.get("invariants") or [])
+    for name, frozen, declaration in declarations:
+        target = declaration.get("target") or name
+        covers = declaration.get("covers") or []
+        markers = declaration.get("markers") or []
 
-    anchored: dict[str, dict] = {}
-    for marker in markers:
-        anchor_text = str(marker.get("anchor") or "")
-        matched = [entry for entry in entries if entry.startswith(anchor_text)] if anchor_text else []
-        if len(matched) != 1:
-            fail("carried", f"anchor {anchor_text!r} ตรงกับข้อใน frozen {len(matched)} ข้อ — ต้องพอดีหนึ่ง")
-            return
-        anchored[matched[0]] = marker
-
-    unmarked = [entry for entry in entries if entry not in anchored]
-    if unmarked:
-        for entry in unmarked:
-            fail("carried", f"ข้อใน frozen ที่ไม่มีรายการใน carried_check: {entry[:70]}")
-        return
-    ok("carried", f"ทุกข้อใน frozen ({len(entries)}) มีรายการใน carried_check")
-
-    target = declaration.get("target") or "event/v1"
-    cached = CACHE / f"{pinned['commit'][:8]}-{target.replace('/', '_')}_event.schema.yaml"
-    if not cached.exists():
-        fail("carried", f"ไม่มีสำเนาของ {target} ใน cache ({cached.name})")
-        return
-    document = cached.read_text(encoding="utf-8")
-
-    for entry, marker in anchored.items():
-        label = entry[:55]
-        if "ours_only" in marker:
-            ok("carried", f"ไม่ได้ส่งต่อโดยเจตนา: {label}")
+        if not covers:
+            fail("carried", f"{target}: carried_check ไม่บอกว่า covers อะไร")
+            continue
+        uncovered = [key for key in frozen if key not in covers]
+        if uncovered and not declaration.get("not_covered_yet"):
+            fail(
+                "carried",
+                f"{target}: ไม่ได้เทียบ {uncovered} และไม่ได้เขียนว่ายังไม่เทียบ "
+                f"— ต้องมี not_covered_yet ไม่งั้นอ่านเหมือนตรวจครบ",
+            )
             continue
 
-        needle = str(marker.get("carried_as") or "")
-        gap = marker.get("not_carried_yet")
-        present = bool(needle) and needle in document
-
-        if present and gap:
-            fail(
-                "carried",
-                f"{label} — พกมาแล้วแต่ยังมี not_carried_yet ค้างอยู่ · ถอดออก "
-                f"ไม่งั้นมันจะกลืนการหายครั้งหน้า",
-            )
-        elif present:
-            ok("carried", f"สัญญาพกมาจริง ({needle!r}): {label}")
-        elif not gap:
-            fail(
-                "carried",
-                f"{label} — ไม่พบ {needle!r} ใน {target} ที่ pin ไว้ · "
-                f"สัญญาอ้างว่าตาม semantics นี้แล้ว แต่ไม่ได้พกกฎมา",
-            )
-        else:
-            issue = gap.get("issue")
-            expires = str(gap.get("expires") or "")
-            if not issue or not expires:
+        entries = frozen_entries(frozen, covers)
+        anchored: dict[str, dict] = {}
+        broken = False
+        for marker in markers:
+            anchor_text = str(marker.get("anchor") or "")
+            matched = [e for e in entries if e.startswith(anchor_text)] if anchor_text else []
+            if len(matched) != 1:
                 fail(
                     "carried",
-                    f"{label} — ช่องว่างที่รู้ตัวต้องมีทั้ง issue และ expires "
-                    f"(ADR-0006 ห้ามข้อยกเว้นที่ไม่มีวันหมดอายุ)",
+                    f"{target}: anchor {anchor_text!r} ตรงกับข้อใน frozen {len(matched)} ข้อ — ต้องพอดีหนึ่ง",
                 )
-            elif expires < today:
-                fail("carried", f"{label} — ช่องว่างหมดอายุแล้ว ({expires}, วันนี้ {today}) · {issue}")
+                broken = True
+                break
+            anchored[matched[0]] = marker
+        if broken:
+            continue
+
+        unmarked = [e for e in entries if e not in anchored]
+        if unmarked:
+            for entry in unmarked:
+                fail("carried", f"{target}: ข้อใน frozen ที่ไม่มีรายการใน carried_check: {entry[:70]}")
+            continue
+        ok("carried", f"{target}: ทุกข้อที่ประกาศว่าเทียบ ({len(entries)}) มีรายการครบ")
+
+        schema_path = declaration.get("schema")
+        if not schema_path:
+            fail("carried", f"{target}: carried_check ไม่บอกว่าเทียบกับไฟล์ไหน")
+            continue
+        cached = CACHE / f"{pinned['commit'][:8]}-{schema_path.replace('/', '_')}"
+        if not cached.exists():
+            fail("carried", f"{target}: ไม่มีสำเนาใน cache ({cached.name})")
+            continue
+        document = cached.read_text(encoding="utf-8")
+        parsed = yaml.safe_load(document)
+
+        for entry, marker in anchored.items():
+            label = f"{target}: {entry[:48]}"
+            if "ours_only" in marker:
+                ok("carried", f"ไม่ได้ส่งต่อโดยเจตนา — {label}")
+                continue
+
+            gap = marker.get("not_carried_yet")
+            present, how = marker_present(marker, document, parsed)
+
+            if present and gap:
+                fail(
+                    "carried",
+                    f"{label} — พกมาแล้วแต่ยังมี not_carried_yet ค้างอยู่ · ถอดออก "
+                    f"ไม่งั้นมันจะกลืนการหายครั้งหน้า",
+                )
+            elif present:
+                ok("carried", f"สัญญาพกมาจริง ({how}) — {label}")
+            elif not gap:
+                fail(
+                    "carried",
+                    f"{label} — ไม่พบ{how} ใน {target} ที่ pin ไว้ · "
+                    f"สัญญาอ้างว่าตาม semantics นี้แล้ว แต่ไม่ได้พกกฎมา",
+                )
             else:
-                print(f"  note  carried: ยังไม่ได้พกมา หมดอายุ {expires} — {label} · {issue}")
+                issue = gap.get("issue")
+                expires = str(gap.get("expires") or "")
+                if not issue or not expires:
+                    fail(
+                        "carried",
+                        f"{label} — ช่องว่างที่รู้ตัวต้องมีทั้ง issue และ expires "
+                        f"(ADR-0006 ห้ามข้อยกเว้นที่ไม่มีวันหมดอายุ)",
+                    )
+                elif expires < today:
+                    fail("carried", f"{label} — ช่องว่างหมดอายุแล้ว ({expires}, วันนี้ {today}) · {issue}")
+                else:
+                    print(f"  note  carried: ยังไม่ได้พกมา หมดอายุ {expires} — {label} · {issue}")
 
 
 def check_text_fields(log) -> None:
