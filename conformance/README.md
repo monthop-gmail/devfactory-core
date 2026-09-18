@@ -49,8 +49,11 @@ pointers, so this file runs the real engine and validates what comes out of it.
    and an expiry like any other gap. Found by `care-agent-platform` on 2026-09-18,
    not by us — ADR-0006's "declared is not conforming" with the direction reversed.
 
-   Each contract declares which parts of its `frozen` subtree it compares, under
-   `covers`, and one that does not cover everything must say so in
+   Each contract declares what it compares under `covers` — frozen keys, and
+   non-frozen ones too: RFC-0017 puts the declaration of `approval/v1.reason` in
+   `text_fields`, which sits outside `frozen` because it is ours rather than part
+   of the contract, and it still needs comparing against the contract that carries
+   the field. A declaration that does not cover every **frozen** key must say so in
    `not_covered_yet` — partial coverage stated is a note about outstanding work,
    partial coverage unstated reads as "all of it was compared", which is how the
    first gap lasted a day.

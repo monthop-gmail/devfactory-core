@@ -769,9 +769,9 @@ def is_external(payload: dict) -> bool:
 
 
 def load_carried_checks() -> list[tuple[str, dict, dict]]:
-    """Every contract that declares one, with its frozen subtree beside it.
+    """Every contract that declares one, whole.
 
-    Returns (contract name, frozen, carried_check) so the checker never has to
+    Returns (contract name, contract, carried_check) so the checker never has to
     know which contracts exist — adding one to the manifest is enough.
     """
     import yaml
@@ -781,24 +781,34 @@ def load_carried_checks() -> list[tuple[str, dict, dict]]:
     for name, contract in (manifest.get("contracts") or {}).items():
         declaration = (contract or {}).get("carried_check")
         if declaration:
-            out.append((name, (contract or {}).get("frozen") or {}, declaration))
+            out.append((name, contract or {}, declaration))
     return out
 
 
-def frozen_entries(frozen: dict, covers: list[str]) -> list[str]:
-    """The frozen items one carried_check is responsible for.
+def covered_entries(contract: dict, covers: list[str]) -> list[str]:
+    """The items one carried_check is responsible for.
 
-    A list of strings contributes each string. A block with a
-    ``required_minimum`` contributes each value in it — that is what a set of
-    permitted values *is*, entry by entry.
+    ``covers`` names keys of the contract, frozen or not: RFC-0017 puts the
+    declaration of ``approval/v1.reason`` in ``text_fields``, which sits outside
+    ``frozen`` because it is ours rather than part of the contract — and it still
+    needs comparing against the contract that carries the field.
+
+    A list of strings contributes each string. A block with ``required_minimum``
+    contributes each value — that is what a set of permitted values *is*, entry by
+    entry. A block with ``declared`` contributes each leaf.
     """
+    frozen = contract.get("frozen") or {}
     entries: list[str] = []
     for key in covers:
-        value = frozen.get(key)
+        # frozen first: a key that exists in both is the frozen one by definition,
+        # and a declaration outside frozen only ever adds names of its own.
+        value = frozen[key] if key in frozen else contract.get(key)
         if isinstance(value, list):
             entries.extend(str(item) for item in value)
         elif isinstance(value, dict) and value.get("required_minimum"):
             entries.extend(str(item) for item in value["required_minimum"])
+        elif isinstance(value, dict) and value.get("declared"):
+            entries.extend(str(entry["leaf"]) for entry in value["declared"])
     return entries
 
 
@@ -881,7 +891,8 @@ def check_carried(pinned: dict, today: str) -> None:
         fail("carried", "contract-semantics.yaml ไม่มีบล็อก carried_check เลย — checker ไม่มีอะไรให้อ่าน")
         return
 
-    for name, frozen, declaration in declarations:
+    for name, contract, declaration in declarations:
+        frozen = contract.get("frozen") or {}
         target = declaration.get("target") or name
         covers = declaration.get("covers") or []
         markers = declaration.get("markers") or []
@@ -898,7 +909,7 @@ def check_carried(pinned: dict, today: str) -> None:
             )
             continue
 
-        entries = frozen_entries(frozen, covers)
+        entries = covered_entries(contract, covers)
         anchored: dict[str, dict] = {}
         broken = False
         for marker in markers:
