@@ -1,7 +1,7 @@
 # RFC-0016: What an Approval Can Be About
 
 ## Status
-Draft — เสนอ 2026-09-18 · จะเป็น `Accepted` เมื่อ merge ตาม `CONTRIBUTING.md`
+Accepted — เสนอ 2026-09-18 · merged to `main` 2026-09-18 in [#45](https://github.com/monthop-gmail/devfactory-core/pull/45)
 
 Answers [`agent-platform#73`](https://github.com/monthop-gmail/agent-platform/issues/73).
 Moves `semantics_version` `1.3` → `1.4`. Touches `frozen`, which is why it is an RFC
