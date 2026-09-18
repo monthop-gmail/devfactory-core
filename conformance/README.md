@@ -53,7 +53,13 @@ pointers, so this file runs the real engine and validates what comes out of it.
    non-frozen ones too: RFC-0017 puts the declaration of `approval/v1.reason` in
    `text_fields`, which sits outside `frozen` because it is ours rather than part
    of the contract, and it still needs comparing against the contract that carries
-   the field. A declaration that does not cover every **frozen** key must say so in
+   the field. A declaration that does not cover every **frozen** key must say why — in
+   `not_covered_yet` for work outstanding, or `not_covered_by_design` for a key
+   that will never be compared, such as `event_types`, whose enum belongs to
+   `agent-platform` by our own declaration. Keeping the two apart matters: someone
+   working through what is left should not pick up a permanent exclusion and go
+   verify a set we do not own.
+
    `not_covered_yet` — partial coverage stated is a note about outstanding work,
    partial coverage unstated reads as "all of it was compared", which is how the
    first gap lasted a day.

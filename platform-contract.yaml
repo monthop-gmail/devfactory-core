@@ -19,7 +19,7 @@ contracts:
 
 conformance:
   status: passing
-  last_verified: 2026-09-18   # รันกับ pin a5138dfe — passed=44 FAIL=0
+  last_verified: 2026-09-18   # รันกับ pin a5138dfe — passed=68 FAIL=0
 
   # ADR-0006 บังคับ consumer 3 ข้อ — ครบแล้วทั้งสาม:
   #   1. manifest        ไฟล์นี้
@@ -184,4 +184,24 @@ gaps:
       · (2) บอกว่าไม่ควรพกมาพร้อมเหตุผล แล้วเราเปลี่ยนเป็น ours_only
       — ข้อ 2 ถูกได้จริง เพราะตัว invariant เขียนเองว่ากฎนี้บังคับได้เฉพาะฝั่งผู้ผลิต
     severity: low   # ไม่มี payload ไหน validate ไม่ผ่านเพราะข้อนี้ · เป็นเรื่องความครบของสัญญา
+    status: open
+
+  - id: approval-subject-type-has-no-record
+    issue: https://github.com/monthop-gmail/agent-platform/issues/73   # เปิด 2026-09-18
+    detail: >-
+      approval/v1 $.subject.type เป็นชุดปิดห้าค่า — job · execution · tool_call ·
+      artifact · deployment · ทั้งหมดเป็นของเครื่องจักรที่รัน agent ไม่มีค่าสำหรับ
+      บันทึกของโดเมน ซึ่งเป็นสิ่งที่ consumer ในโดเมนธุรกิจขออนุมัติบ่อยที่สุด
+    found_by: >-
+      care-agent-platform ตอน implement PDPA erasure ที่ต้องมีคนอนุมัติสองคน
+      · เขาเลือก artifact ให้คำสั่งหมอที่รอมีผล และ tool_call ให้คำขอลบข้อมูล
+      — ทั้งคู่ validate ผ่าน และ audit event ของวัตถุเดียวกันใช้ subject_type record อยู่แล้ว
+    our_answer: >-
+      rfcs/0016 — ชุดนี้เป็น semantics ของ repo นี้ตามคำของทั้งสองฝ่าย และเราไม่เคย
+      ประกาศมันไว้ที่ไหน · ประกาศแล้วใน approval.frozen.subject_types แบบเปิด
+      พร้อมขั้นต่ำที่มี record ยืมนิยามจาก event/v1 มาทั้งดุ้น · semantics_version 1.4
+    workaround: >-
+      บันทึกเป็น not_carried_yet ใน contract-semantics.yaml → approval.carried_check
+      · CI เราเทียบ enum ของสัญญาที่ pin ไว้ทุกรอบ และจะเขียวเองเมื่อค่านี้เข้าไป
+    severity: low   # ไม่มี payload ไหน validate ไม่ผ่าน · เป็นเรื่องความหมายที่เพี้ยนแบบเงียบ
     status: open
