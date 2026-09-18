@@ -1,7 +1,7 @@
 # RFC-0017: The Leaf Rule Is Not a Property of One Contract
 
 ## Status
-Draft — เสนอ 2026-09-18 · จะเป็น `Accepted` เมื่อ merge ตาม `CONTRIBUTING.md`
+Accepted — เสนอ 2026-09-18 · merged to `main` 2026-09-18 in [#49](https://github.com/monthop-gmail/devfactory-core/pull/49)
 
 Answers [issue #46](https://github.com/monthop-gmail/devfactory-core/issues/46) from
 `agent-platform`. Declares one leaf. **Adds no obligation that was not already
