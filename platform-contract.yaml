@@ -19,7 +19,7 @@ contracts:
 
 conformance:
   status: passing
-  last_verified: 2026-09-17   # รันกับ pin a5138dfe — passed=25 FAIL=0
+  last_verified: 2026-09-18   # รันกับ pin a5138dfe — passed=44 FAIL=0
 
   # ADR-0006 บังคับ consumer 3 ข้อ — ครบแล้วทั้งสาม:
   #   1. manifest        ไฟล์นี้
@@ -159,3 +159,29 @@ gaps:
       · invariant ที่ v1.1.0 ฝากไว้กับผู้ผลิต (ใบที่อ้างต้องมีจริง · tenant เดียวกัน ·
       subject เดียวกัน · ห้ามชี้ตัวเอง · ห้ามเป็นวง) ทางเดินปกติของ Job.decide ทำครบ
       แต่ถ้า caller ส่ง supersedes_decision_id เข้ามาเองยังไม่มีใครตรวจ — ดู remaining:
+
+  - id: rfc-0013-rule-not-carried
+    issue: https://github.com/monthop-gmail/agent-platform/issues/74   # เปิด 2026-09-18
+    detail: >-
+      event/v1 v1.7.1 ที่ commit a5138dfe ประกาศ semantics_version "1.3" และใส่
+      rfcs/0013 ไว้ใน derived_from.rfcs แต่ทั้งเอกสารไม่มีคำว่า leaf — ไม่มีข้อใน
+      guarantees.rules ไม่มีใน platform_rules · กฎถูกอ้างถึง แต่ไม่ได้ถูกพกมา
+      · ค้นทั้ง repo ต้นทางแล้ว leaf โผล่ที่เดียวคือคำอธิบาย display_name ใน
+      identity/v1 ซึ่งเป็น ADR-0031 คนละเรื่อง
+    found_by: >-
+      care-agent-platform#28 ไม่ใช่เช็คของเรา — เขาเขียนไว้ตอนอัปเกรด pin แล้วเราไปตรวจตาม
+    why_nothing_caught_it: >-
+      drift check ของ agent-platform เทียบ semantics_version ซึ่งตรง · payload_check
+      ของเราเทียบ payload กับ schema ซึ่งผ่าน · pin_freshness เทียบอายุซึ่งสด
+      · payload_check ของ care ไล่ leaf จริง 115 ใบซึ่งผ่าน เพราะทะเบียนคีย์ปิดของเขา
+      ลดค่าขาเข้าเป็น token ตั้งแต่ intake · ไม่มีเกตไหนถามว่าสัญญาพกกฎมาด้วยหรือเปล่า
+    workaround: >-
+      บันทึกเป็น not_carried_yet ใน contract-semantics.yaml → carried_check
+      พร้อม issue และวันหมดอายุ 2026-10-31 · และเพิ่มเช็คใหม่ที่เทียบ frozen ของเรา
+      กับสัญญาที่ pin ไว้ทุกครั้งที่ payload_check รัน — ช่องแบบนี้จะไม่เงียบอีก
+    acceptable_answers: >-
+      สองทาง: (1) พกกฎมา ถ้อยคำเป็นของ agent-platform ตาม rfcs/0005 Rule 1
+      · (2) บอกว่าไม่ควรพกมาพร้อมเหตุผล แล้วเราเปลี่ยนเป็น ours_only
+      — ข้อ 2 ถูกได้จริง เพราะตัว invariant เขียนเองว่ากฎนี้บังคับได้เฉพาะฝั่งผู้ผลิต
+    severity: low   # ไม่มี payload ไหน validate ไม่ผ่านเพราะข้อนี้ · เป็นเรื่องความครบของสัญญา
+    status: open
