@@ -13,12 +13,17 @@
 # ที่มาฉบับเต็มเป็น prose อยู่ใน rfcs/ — ถ้าไฟล์นี้ขัดกับ RFC ให้ถือ RFC เป็นหลัก
 # แล้วเปิด issue เพราะแปลว่าไฟล์นี้ผิด
 
-semantics_version: "1.4"
+semantics_version: "1.5"
 owner: devfactory-core
 authority: rfcs/0005-platform-contract-authority.md
 amended_by: rfcs/0009-vocabulary-extension.md   # Rule 2 — เพิ่ม event type เป็น additive แล้ว
 license: MIT
 
+# 1.4 → 1.5 (2026-09-18)
+#   ประกาศ approval/v1.reason เป็น leaf ที่ถือข้อความของคน — กฎ rfcs/0013 ผูกทุกสัญญา
+#   ที่ semantics เป็นของ repo นี้ ไม่ใช่เฉพาะ event (rfcs/0017)
+#   contract ที่ derive ต้องอัปเดต derived_from.semantics_version เป็น "1.5"
+#
 # 1.3 → 1.4 (2026-09-18)
 #   ประกาศ approval.frozen.subject_types ที่ไม่เคยถูกเขียนไว้ที่ไหน + เพิ่มค่า record
 #   และเพิ่ม subject ลง required_meaning (rfcs/0016)
@@ -72,7 +77,7 @@ derived_from_block_template: |
   derived_from:
     repo: monthop-gmail/devfactory-core
     manifest: contract-semantics.yaml
-    semantics_version: "1.4"
+    semantics_version: "1.5"
     rfcs:
       - rfcs/0002-governance-decision-contract.md
     license: MIT
@@ -199,11 +204,39 @@ contracts:
           — GOVERNANCE_ANALYSIS → DRAFT เป็นคำตัดสิน ส่วน REJECTED → DRAFT ไม่ใช่
           (เป็นแค่ขั้นแก้ไขหลังคำตัดสินที่บันทึกไปแล้ว) · ดู states.DECISION_BY_EDGE
 
+    # ℹ️ นอก frozen — rfcs/0017 · กฎ leaf ไม่ใช่คุณสมบัติของสัญญาใบเดียว
+    #
+    # RFC-0013 เขียนกฎไว้ใต้ event.frozen.invariants เพราะตอนนั้น event/v1 เป็นใบเดียว
+    # ที่มีหลักฐานอยู่ตรงหน้า · ถ้อยคำของ invariant ไม่ได้พูดถึง event เลย และขอบเขต
+    # ที่ดูเหมือนมีมาจากตำแหน่งที่เขียน ซึ่งไม่ใช่การตัดสินใจที่ใครทำ (rfcs/0017 Decision 1)
+    #
+    # เราประกาศ metadata.approval.reason ไว้แล้วในใบ event — นั่นคือ "ปลายทาง"
+    # ของประโยคเดียวกันตอนไหลเข้า audit · บล็อกนี้ประกาศ "ต้นทาง"
+    text_fields:
+      declared:
+        - leaf: reason
+          who_writes_it: ผู้มีอำนาจที่ออกคำตัดสิน
+          why_it_cannot_be_a_pointer: >-
+            approval/v1 บังคับ required + minLength 1 และ required_meaning ของใบนี้
+            บังคับว่าต้องมี "เหตุผลที่ตัดสินอย่างนั้น" — คำตัดสินที่ไม่มีเหตุผลไม่ auditable
+            (rfcs/0002) · การประกาศจึงเป็นการถอดคำตัดสินที่ทำไปแล้วสองครั้ง
+            ไม่ใช่การใช้ดุลพินิจใหม่
+          retention_layer: >-
+            ผู้ถือแต่ละรายเป็นคนตอบ เพราะ approval/v1 ไม่ได้ผูกกับ store ใด
+            · ฝั่ง repo นี้ ประโยคนี้ไปจบที่ metadata.approval.reason ใน event
+            ซึ่งเป็น append-only และวันนี้อยู่ในหน่วยความจำล้วน — ดู
+            contracts.event.text_fields.declared สำหรับคำตอบฉบับเต็ม
+          cannot_be_withheld: >-
+            ต่างจาก transition.reason ที่เป็น optional — ผู้ผลิตที่เห็นว่าไม่คุ้มค่าเก็บ
+            เลิกส่งได้ · ใบนี้ไม่มีทางออกนั้น สัญญาบังคับให้ประโยคนี้มีอยู่
+            ดังนั้นสิ่งเดียวที่เปลี่ยนได้ตลอดอายุของมันคือคำตอบ retention_layer ข้างบน
+            — ซึ่งเป็นเหตุผลที่ leaf นี้ต้องมีการประกาศ ไม่ใช่เหตุผลที่จะยกเว้นมัน
+
     # ℹ️ นอก frozen — rfcs/0016 ขั้น 3 · เทียบสิ่งที่เรา freeze กับสัญญาที่ pin ไว้
     carried_check:
       target: approval/v1
       schema: approval/v1/approval.schema.yaml
-      covers: [subject_types, required_meaning]
+      covers: [subject_types, required_meaning, text_fields]
       not_covered_yet: >-
         guarantees · invariants · decision_types ของ approval ยังไม่ถูกเทียบ
         · เขียนไว้ตรงนี้แทนที่จะปล่อยให้ดูเหมือนตรวจครบ — ของ event ใช้เวลาหนึ่งวัน
@@ -246,6 +279,12 @@ contracts:
         - anchor: deployment
           carried_as: deployment
           in_enum: true
+        - anchor: reason
+          carried_as: reason
+          as_key: true
+          note: >-
+            rfcs/0017 — ประกาศ leaf ต้นทาง · ที่เทียบคือสัญญายังมี field นี้อยู่จริงไหม
+            ไม่ใช่ว่ามันถือข้อความอะไร ซึ่งเป็นสิ่งที่ validator บอกไม่ได้อยู่แล้ว
         - anchor: record
           carried_as: record
           in_enum: true
