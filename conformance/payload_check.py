@@ -741,6 +741,26 @@ def check_manifests() -> None:
         else:
             ok("manifest", f"{name} parse ได้และมีคีย์ครบ")
 
+    # รูปร่างข้างในด้วย ไม่ใช่แค่คีย์ระดับบน · คีย์ครบแล้วแต่รายการไปอยู่ผิดลิสต์
+    # ยัง parse ผ่าน — เกิดจริงตอนเพิ่ม gap ใบ rfc-0013 แล้วมันไปตกใน remaining
+    # ซึ่งเป็นลิสต์ของสตริง · เป็นรูปเดียวกับตอนไฟล์นี้ parse ไม่ได้ แค่ลึกลงไปอีกชั้น
+    contract = yaml.safe_load((ROOT / "platform-contract.yaml").read_text(encoding="utf-8")) or {}
+    stray = [item for item in (contract.get("remaining") or []) if not isinstance(item, str)]
+    if stray:
+        fail("manifest", f"platform-contract.yaml remaining มีรายการที่ไม่ใช่ข้อความ {len(stray)} ตัว")
+    else:
+        ok("manifest", "platform-contract.yaml remaining เป็นลิสต์ของข้อความล้วน")
+
+    malformed = [
+        entry
+        for entry in (contract.get("gaps") or [])
+        if not isinstance(entry, dict) or not entry.get("id") or not entry.get("status")
+    ]
+    if malformed:
+        fail("manifest", f"platform-contract.yaml gaps มีรายการที่ขาด id หรือ status {len(malformed)} ตัว")
+    else:
+        ok("manifest", f"platform-contract.yaml gaps ทุกรายการมี id และ status ({len(contract.get('gaps') or [])})")
+
 
 def is_external(payload: dict) -> bool:
     """RFC-0008 forces ``source.kind`` at intake, so this is the record's own word."""
