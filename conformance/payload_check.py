@@ -748,6 +748,106 @@ def is_external(payload: dict) -> bool:
     return isinstance(source, dict) and source.get("kind") == "external"
 
 
+def load_carried_check() -> dict:
+    """The marker list RFC-0005 Rule 3 needs and nothing was reading."""
+    import yaml
+
+    manifest = yaml.safe_load((ROOT / "contract-semantics.yaml").read_text(encoding="utf-8"))
+    return (manifest["contracts"]["event"] or {}).get("carried_check") or {}
+
+
+def check_carried(pinned: dict, today: str) -> None:
+    """The derived contract carries the invariants this repository froze.
+
+    RFC-0005 Rule 3 makes a derived contract state where it came from. Nothing
+    checked that stating it and carrying it are the same thing — their drift check
+    compares ``semantics_version``, which agrees; this file validates payloads
+    against the schema, which passes; ``pin_freshness`` compares age, which is
+    fresh. A contract can declare it follows an RFC whose rule it does not contain
+    and every gate stays green.
+
+    Found by ``care-agent-platform`` on 2026-09-18, not by us. It is ADR-0006's
+    "declared is not conforming" with the direction reversed: this time the
+    contract is the one declaring, and the rule is what is missing.
+
+    The document is searched as **text**, not as parsed YAML — a rule carried in a
+    comment beside a vocabulary value is carried, and ``yaml.safe_load`` drops
+    comments.
+    """
+    import yaml
+
+    declaration = load_carried_check()
+    markers = declaration.get("markers") or []
+    if not markers:
+        fail("carried", "contract-semantics.yaml ไม่มีบล็อก carried_check — checker ไม่มีอะไรให้อ่าน")
+        return
+
+    manifest = yaml.safe_load((ROOT / "contract-semantics.yaml").read_text(encoding="utf-8"))
+    frozen = (manifest["contracts"]["event"] or {}).get("frozen") or {}
+    entries = list(frozen.get("guarantees") or []) + list(frozen.get("invariants") or [])
+
+    anchored: dict[str, dict] = {}
+    for marker in markers:
+        anchor_text = str(marker.get("anchor") or "")
+        matched = [entry for entry in entries if entry.startswith(anchor_text)] if anchor_text else []
+        if len(matched) != 1:
+            fail("carried", f"anchor {anchor_text!r} ตรงกับข้อใน frozen {len(matched)} ข้อ — ต้องพอดีหนึ่ง")
+            return
+        anchored[matched[0]] = marker
+
+    unmarked = [entry for entry in entries if entry not in anchored]
+    if unmarked:
+        for entry in unmarked:
+            fail("carried", f"ข้อใน frozen ที่ไม่มีรายการใน carried_check: {entry[:70]}")
+        return
+    ok("carried", f"ทุกข้อใน frozen ({len(entries)}) มีรายการใน carried_check")
+
+    target = declaration.get("target") or "event/v1"
+    cached = CACHE / f"{pinned['commit'][:8]}-{target.replace('/', '_')}_event.schema.yaml"
+    if not cached.exists():
+        fail("carried", f"ไม่มีสำเนาของ {target} ใน cache ({cached.name})")
+        return
+    document = cached.read_text(encoding="utf-8")
+
+    for entry, marker in anchored.items():
+        label = entry[:55]
+        if "ours_only" in marker:
+            ok("carried", f"ไม่ได้ส่งต่อโดยเจตนา: {label}")
+            continue
+
+        needle = str(marker.get("carried_as") or "")
+        gap = marker.get("not_carried_yet")
+        present = bool(needle) and needle in document
+
+        if present and gap:
+            fail(
+                "carried",
+                f"{label} — พกมาแล้วแต่ยังมี not_carried_yet ค้างอยู่ · ถอดออก "
+                f"ไม่งั้นมันจะกลืนการหายครั้งหน้า",
+            )
+        elif present:
+            ok("carried", f"สัญญาพกมาจริง ({needle!r}): {label}")
+        elif not gap:
+            fail(
+                "carried",
+                f"{label} — ไม่พบ {needle!r} ใน {target} ที่ pin ไว้ · "
+                f"สัญญาอ้างว่าตาม semantics นี้แล้ว แต่ไม่ได้พกกฎมา",
+            )
+        else:
+            issue = gap.get("issue")
+            expires = str(gap.get("expires") or "")
+            if not issue or not expires:
+                fail(
+                    "carried",
+                    f"{label} — ช่องว่างที่รู้ตัวต้องมีทั้ง issue และ expires "
+                    f"(ADR-0006 ห้ามข้อยกเว้นที่ไม่มีวันหมดอายุ)",
+                )
+            elif expires < today:
+                fail("carried", f"{label} — ช่องว่างหมดอายุแล้ว ({expires}, วันนี้ {today}) · {issue}")
+            else:
+                print(f"  note  carried: ยังไม่ได้พกมา หมดอายุ {expires} — {label} · {issue}")
+
+
 def check_text_fields(log) -> None:
     """Every string leaf is either declared human text, or a pointer. RFC-0013.
 
@@ -1071,20 +1171,22 @@ def main() -> int:
     log, jobs, external = run_scenario()
     print("\n[0] manifest ของเราเอง — parse ได้และมีคีย์ที่ผู้อ่านพึ่งพา")
     check_manifests()
-    print(f"\n[1] payload ที่ระบบผลิตจริง — {len(log)} event จาก {len(jobs)} job")
+    print("\n[1] สัญญาที่ derive ไปแล้ว พกข้อผูกมัดของเรามาจริงไหม — RFC-0005 Rule 3")
+    check_carried(pinned, args.today)
+    print(f"\n[2] payload ที่ระบบผลิตจริง — {len(log)} event จาก {len(jobs)} job")
     check_payloads(log, validator, pinned.get("known_gaps") or [])
-    print("\n[2] คำตัดสินที่ระบบผลิตจริง — approval/v1 (RFC-0002)")
+    print("\n[3] คำตัดสินที่ระบบผลิตจริง — approval/v1 (RFC-0002)")
     check_decisions(log, jobs, approval_validator, approval_schema)
-    print("\n[3] ใบปิดท้ายของทุก terminal — RFC-0012")
+    print("\n[4] ใบปิดท้ายของทุก terminal — RFC-0012")
     check_trail_closure(log, jobs)
-    print("\n[4] leaf ที่ถือข้อความของคน — RFC-0013")
+    print("\n[5] leaf ที่ถือข้อความของคน — RFC-0013")
     check_text_fields(log)
-    print("\n[5] ข้อความของผู้ผลิตคนอื่น — RFC-0015")
+    print("\n[6] ข้อความของผู้ผลิตคนอื่น — RFC-0015")
     check_external_producers(log, args.today)
     check_external_text_not_copied(log)
-    print("\n[6] guarantee ที่ JSON Schema ตรวจไม่ได้")
+    print("\n[7] guarantee ที่ JSON Schema ตรวจไม่ได้")
     check_guarantees(log, jobs, external)
-    print("\n[7] ช่องว่างที่รู้ตัว — ต้องมี issue และวันหมดอายุ")
+    print("\n[8] ช่องว่างที่รู้ตัว — ต้องมี issue และวันหมดอายุ")
     check_gap_expiry(pinned.get("known_gaps") or [], args.today)
 
     fails = [f for f in findings if f[0] == "FAIL"]
