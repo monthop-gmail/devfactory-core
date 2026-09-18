@@ -237,6 +237,19 @@ contracts:
     # ไม่ใช่ส่วนหนึ่งของสัญญา · RFC กำหนดว่าการประกาศต้องเป็นสิ่งที่ checker อ่านจริง
     # conformance/payload_check.py อ่านบล็อกนี้ ไม่ได้ถือรายการของตัวเอง
     text_fields:
+      # ℹ️ "ประกาศไว้ในสัญญา" ในข้อ (2) ของ invariant หมายถึงอะไร — นอก frozen
+      #
+      # ถ้อยคำในข้อนั้นอ่านได้ว่าการประกาศต้องอยู่ "ในสัญญา" ขณะที่บล็อกนี้เองอยู่
+      # นอก frozen และเขียนกำกับว่าไม่ใช่ส่วนหนึ่งของสัญญา · care-agent-platform
+      # ต้องมานั่งไล่ว่าตัวเองผิดกฎหรือเปล่าก่อนจะสรุปว่าไม่ผิด (care-agent-platform#28)
+      #
+      # การอ่านที่ตกลงกันแล้วทั้งสองฝั่ง: สิ่งที่ข้อนั้นบังคับคือ **ต้องมีการประกาศ
+      # ที่เป็นของจริงและเป็นสิ่งที่ checker ของผู้ผลิตอ่านเอง** ไม่ใช่ว่าการประกาศ
+      # ต้องอยู่ในไฟล์สัญญากลาง · ผู้ผลิตแต่ละรายรู้ว่าใครเขียนค่าลง field ของตัวเอง
+      # ส่วนสัญญากลางไม่รู้ และ rfcs/0013 เขียนไว้เองว่ากฎนี้บังคับได้ที่ผู้ผลิตเท่านั้น
+      #
+      # ไม่แก้ถ้อยคำในข้อนั้นเพราะมันอยู่ใน frozen — แก้แล้วต้อง bump major
+      # และให้ทุก consumer ตามใหม่ เพื่อเปลี่ยนคำที่ทุกฝ่ายอ่านตรงกันอยู่แล้ว
       declared:
         - leaf: transition.reason
           who_writes_it: คนที่สั่งให้ transition นั้นเกิด
@@ -305,6 +318,71 @@ contracts:
           note: >-
             chain ของการมอบอำนาจ — จุดที่การตัดครั้งแรกของ producer อ้างอิงพลาดไป
             เราจึงตัดแบบ recursive ตั้งแต่ต้น
+
+    # ℹ️ นอก frozen — ตรวจว่าสัญญาที่ derive ไปแล้ว "พก" ข้อผูกมัดของเราจริงหรือเปล่า
+    #
+    # ทำไมต้องมี: rfcs/0005 Rule 2 ให้ semantics เป็นของ repo นี้ และ Rule 3 ให้สัญญา
+    # ที่ derive ไปบอกที่มา · แต่ไม่มีอะไรตรวจว่า "บอกที่มา" กับ "พกของที่อ้างถึงมาด้วย"
+    # เป็นเรื่องเดียวกัน — drift check เทียบ semantics_version ซึ่งตรง · payload_check
+    # เทียบ payload กับ schema ซึ่งผ่าน · pin_freshness เทียบอายุ ซึ่งสด
+    #
+    # ช่องนี้ถูกพบเมื่อ 2026-09-18 โดย care-agent-platform ไม่ใช่โดยเช็คของเรา
+    # (care-agent-platform#28) — เป็นรูปเดียวกับที่ ADR-0006 ตั้งชื่อไว้ว่า
+    # "declared is not conforming" แค่กลับด้าน: คราวนี้สัญญาเป็นฝ่ายประกาศว่า
+    # ตามเราแล้ว โดยยังไม่ได้พกกฎมา
+    carried_check:
+      note: >-
+        conformance/payload_check.py อ่านบล็อกนี้ · ทุกข้อใน frozen ต้องมีรายการที่นี่
+        และรายการที่ anchor ชี้ไปไม่ตรงกับข้อไหนเลยถือว่าผิด — สัญญาที่โตเกินกว่าที่ตรวจ
+        ต้องแดง ไม่ใช่ผ่านเงียบ ๆ ทับของเดิม
+      target: event/v1
+      markers:
+        - anchor: event เป็น append-only
+          carried_as: append-only
+        - anchor: no silent state change
+          carried_as: no silent state change
+        - anchor: ทุกการจบแบบ terminal
+          carried_as: JOB_SETTLED
+          note: >-
+            พกมาเป็นค่าใน vocabulary พร้อมคำอธิบายว่าต่างจาก JOB_COMPLETED อย่างไร
+            ไม่ได้พกมาเป็นข้อใน guarantees.rules · ยอมรับได้เพราะผู้อ่านสัญญาเห็นของจริง
+        - anchor: ทุก event ต้องตอบได้ว่า
+          carried_as: subject จำเป็นเสมอ
+        - anchor: ห้ามสร้าง job_id ปลอม
+          carried_as: ห้ามสร้าง job_id ปลอม
+        - anchor: event ที่ resolve tenant ไม่ได้
+          carried_as: ห้ามเดา tenant
+        - anchor: event ที่ devfactory-core ส่งออก
+          ours_only: >-
+            ข้อนี้เป็นคำสัญญาของ producer รายนี้ ไม่ใช่กฎของสัญญากลาง — การใส่ลงไป
+            จะกลายเป็นการบังคับผู้ผลิตรายอื่นให้ทำตามกฎที่ว่าด้วย devfactory-core
+            · เราบังคับมันเองที่ conformance/payload_check.py
+        - anchor: external event ต้องคง source
+          carried_as: คง source
+        - anchor: ห้ามเก็บ private reasoning
+          carried_as: private reasoning
+        - anchor: trace ที่ไม่มี step ย่อย
+          carried_as: trace ที่ไม่มี step
+        - anchor: leaf ที่อาจถือข้อความของคน
+          carried_as: leaf
+          not_carried_yet:
+            since: "2026-09-17"
+            detail: >-
+              event/v1 v1.7.1 ที่ commit a5138dfe ประกาศ semantics_version "1.3"
+              และใส่ rfcs/0013 ไว้ใน derived_from.rfcs แล้ว แต่ทั้งเอกสารไม่มีคำว่า
+              leaf · ไม่มีข้อใน guarantees.rules · ไม่มีใน platform_rules
+              — อ้างถึงแล้ว แต่ยังไม่ได้พกมา
+            owner: agent-platform
+            why_theirs: rfcs/0005 Rule 1 — ถ้อยคำและโครงสร้างของสัญญาเป็นของเขา
+            issue: https://github.com/monthop-gmail/agent-platform/issues/74
+            expires: "2026-10-31"
+            expires_reason: >-
+              วันเดียวกับ backstop ของ issue #32 ไม่ใช่การประเมินว่างานใช้เวลาเท่านั้น
+              · เลื่อนได้ถ้าเขาขอ แต่ต้องเขียนเหตุผลลงตรงนี้ ไม่ใช่ขยับตัวเลขเฉย ๆ
+            acceptable_answer: >-
+              "ไม่ควรพกมา" เป็นคำตอบที่ถูกได้จริง — ตัวใบเขียนเองว่ากฎนี้บังคับได้
+              เฉพาะฝั่งผู้ผลิต · ถ้าเขาตอบแบบนั้นพร้อมเหตุผล รายการนี้เปลี่ยนเป็น
+              ours_only เหมือนข้อ job_id ไม่ใช่ค้างเป็นช่องว่างต่อไป
 
     # ℹ️ rfcs/0015 — ข้อความใน external event เป็นของผู้ผลิต ไม่ใช่ของเรา
     # อยู่นอก frozen เพราะเป็นการประกาศฝั่งเรา ไม่ใช่ส่วนหนึ่งของสัญญา

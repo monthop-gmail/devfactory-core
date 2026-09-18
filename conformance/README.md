@@ -38,14 +38,24 @@ pointers, so this file runs the real engine and validates what comes out of it.
    while that payload — in the issue since 2026-08-21 — held eight leaves nothing
    had looked at. A fixture smaller than the thing it stands for is how RFC-0013
    passed for a day without covering the case it was written for.
-3. Validates every emitted payload against `event/v1`.
-4. Checks that those approval payloads use `approval/v1`'s **field names** and not
+3. Checks that the **derived contract carries the invariants this repository
+   froze** — RFC-0005 Rule 3. Stating where a contract came from and carrying what
+   it came from are not the same thing, and nothing on either side was comparing
+   them: their drift check asks whether `semantics_version` agrees, and it does;
+   this file validates payloads against the schema, and they pass; `pin_freshness`
+   asks the pin's age, and it is fresh. Markers live in `contract-semantics.yaml`
+   under `carried_check`; every entry in `frozen` must have one, an anchor that
+   matches no entry fails, and a rule the contract has not carried needs an issue
+   and an expiry like any other gap. Found by `care-agent-platform` on 2026-09-18,
+   not by us — ADR-0006's "declared is not conforming" with the direction reversed.
+4. Validates every emitted payload against `event/v1`.
+5. Checks that those approval payloads use `approval/v1`'s **field names** and not
    names of ours. The schema leaves `additionalProperties` open, so a field we
    invented validates in silence — the contract's own `properties` list is used as
    the closed set the contract does not declare it to be. This is what would have
    caught `supersedes_decision_id` still riding the wire after `approval/v1` v1.1.0
    named the field `supersedes_approval_id`.
-5. Checks that every inbound record's **producer** is declared in
+6. Checks that every inbound record's **producer** is declared in
    `external_text.producers` with a retention answer and a review date — RFC-0015.
    The unit is the producer, not the field: one entry per system is satisfiable,
    while one entry per field would turn this build red every time somebody else
@@ -57,11 +67,11 @@ pointers, so this file runs the real engine and validates what comes out of it.
    to re-read the entry, not the other repository's to publish a declaration, and a
    date no check opens is a backstop nobody reads. Exercise it with
    `--today 2026-11-01`.
-6. Asserts the eight `event/v1` guarantees that JSON Schema cannot express:
+7. Asserts the eight `event/v1` guarantees that JSON Schema cannot express:
    append-only, no silent state change, subject always answerable, `job_id` never
    fabricated, unresolvable tenant rejected at intake, external source preserved,
    no reasoning traces in an audit record, tenant partitions not mixed.
-7. Checks that every entry in `known_gaps` still has an issue and an unexpired date.
+8. Checks that every entry in `known_gaps` still has an issue and an unexpired date.
 
 Nothing in the scenario is hand-written to please the schema. If a payload does not
 conform, the fix is the code or an upstream issue — never the fixture.
