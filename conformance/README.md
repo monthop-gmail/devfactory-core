@@ -48,6 +48,20 @@ pointers, so this file runs the real engine and validates what comes out of it.
    matches no entry fails, and a rule the contract has not carried needs an issue
    and an expiry like any other gap. Found by `care-agent-platform` on 2026-09-18,
    not by us — ADR-0006's "declared is not conforming" with the direction reversed.
+
+   Each contract declares which parts of its `frozen` subtree it compares, under
+   `covers`, and one that does not cover everything must say so in
+   `not_covered_yet` — partial coverage stated is a note about outstanding work,
+   partial coverage unstated reads as "all of it was compared", which is how the
+   first gap lasted a day.
+
+   A marker says **how** to look for what it names. Prose is matched as text, so a
+   rule carried in a comment beside a vocabulary value counts. A value says
+   `in_enum` and a field name says `as_key`, both matched exactly against the
+   parsed document — because plain text is wrong for a single word: `record`
+   matched `approval/v1` on a filename inside a link
+   (`0019-execution-records-its-approval.md`) and reported an enum value as carried
+   that was not there.
 4. Validates every emitted payload against `event/v1`.
 5. Checks that those approval payloads use `approval/v1`'s **field names** and not
    names of ours. The schema leaves `additionalProperties` open, so a field we

@@ -13,12 +13,17 @@
 # ที่มาฉบับเต็มเป็น prose อยู่ใน rfcs/ — ถ้าไฟล์นี้ขัดกับ RFC ให้ถือ RFC เป็นหลัก
 # แล้วเปิด issue เพราะแปลว่าไฟล์นี้ผิด
 
-semantics_version: "1.3"
+semantics_version: "1.4"
 owner: devfactory-core
 authority: rfcs/0005-platform-contract-authority.md
 amended_by: rfcs/0009-vocabulary-extension.md   # Rule 2 — เพิ่ม event type เป็น additive แล้ว
 license: MIT
 
+# 1.3 → 1.4 (2026-09-18)
+#   ประกาศ approval.frozen.subject_types ที่ไม่เคยถูกเขียนไว้ที่ไหน + เพิ่มค่า record
+#   และเพิ่ม subject ลง required_meaning (rfcs/0016)
+#   contract ที่ derive ต้องอัปเดต derived_from.semantics_version เป็น "1.4"
+#
 # 1.2 → 1.3 (2026-09-17)
 #   เพิ่ม invariant: leaf ที่อาจถือข้อความของคนต้องประกาศ ที่เหลือเป็นตัวชี้ (rfcs/0013)
 #   contract ที่ derive ต้องอัปเดต derived_from.semantics_version เป็น "1.3"
@@ -40,7 +45,13 @@ license: MIT
 #
 # ให้ pin `semantics_version` ของไฟล์นี้แทน:
 #   - แก้ prose / เพิ่มคำอธิบาย / จัดรูปแบบ  → version ไม่ขยับ
-#   - แตะอะไรใน `frozen:` ก็ตาม             → version ขยับ major และต้องมี RFC ก่อน (Rule 2)
+#   - แตะอะไรใน `frozen:` ก็ตาม             → version ขยับและต้องมี RFC ก่อน (Rule 2)
+#
+# "ขยับ" คือขยับหลักหลัง — 1.1 · 1.2 · 1.3 · 1.4 ล้วนเป็นการแตะ `frozen:` ทั้งสิ้น
+# บรรทัดนี้เคยเขียนว่า "ขยับ major" ซึ่งไม่ตรงกับที่ทำจริงมาสี่รอบ · แก้ถ้อยคำให้ตรง
+# กับการปฏิบัติ ไม่ใช่แก้การปฏิบัติให้ตรงถ้อยคำ — ไม่มี consumer รายไหนอ่านคำว่า
+# major แล้วทำอะไรต่างออกไป และ major bump จริงจะหมายถึงการถอนหรือลดทอน guarantee
+# ซึ่งยังไม่เคยเกิด (rfcs/0016 Open Questions)
 #
 # ถ้าอยาก check อัตโนมัติใน CI ให้ hash เฉพาะ subtree `frozen:` ของแต่ละ contract
 # แล้วเทียบกับค่าที่บันทึกไว้ — hash เปลี่ยนโดย version ไม่ขยับ = เราทำผิดกฎ ให้ fail ได้เลย
@@ -61,7 +72,7 @@ derived_from_block_template: |
   derived_from:
     repo: monthop-gmail/devfactory-core
     manifest: contract-semantics.yaml
-    semantics_version: "1.3"
+    semantics_version: "1.4"
     rfcs:
       - rfcs/0002-governance-decision-contract.md
     license: MIT
@@ -97,6 +108,41 @@ contracts:
         - เหตุผลที่ตัดสินอย่างนั้น (reason)
         - ผู้มีอำนาจที่รับผิดชอบคำตัดสินนี้ (authority)
         - เวลาที่ตัดสิน (timestamp)
+        # rfcs/0016 — ข้อนี้หายไปตั้งแต่ต้น ทั้งที่ approval/v1 มี subject ใน required
+        # และนั่นคือวิธีที่ชุดค่าของมันหลุดไปไม่ถูกประกาศ: ความหมายที่มันรับใช้
+        # ก็ไม่เคยถูกลิสต์เหมือนกัน
+        - เกี่ยวกับอะไร (subject) — คำตัดสินที่ไม่บอกว่าตัดสินเรื่องอะไร ตามรอยไม่ได้
+
+      subject_types:
+        # rfcs/0016 · ชุดนี้เป็น semantics ของเรา — approval/v1 เขียนกำกับเองว่า
+        # "🔒 เป็น semantics ของ devfactory-core" และ platform_may_add_freely ของ
+        # approval ก็ไม่มี subject · แต่เราไม่เคยประกาศมันไว้ที่ไหน จึงไม่มีอะไรฝั่งนี้
+        # มองเห็นได้เลยว่ามันขาดค่า จนกระทั่ง care-agent-platform ชนมันสองครั้ง
+        #
+        # ⚠️ ต่างจาก event/v1 โดยเจตนา — subject_type ของ event อยู่ใน
+        # platform_may_add_freely คือ enum เป็นของ agent-platform (ดู contracts.event)
+        # ชื่อ field เดียวกัน เจ้าของคนละคน · เขียนไว้ตรงนี้เพราะเดิมไม่มีเอกสารไหนบอก
+        closed: false
+        # เปิด ไม่ใช่ปิด ตามบททดสอบของ rfcs/0009: การเพิ่มค่าเปิดทางให้ execution
+        # เดินโดยไม่มี APPROVE ของคนไหม · subject type บอกว่าอนุมัติ "อะไร"
+        # ไม่เคยบอกว่า "อนุมัติหรือไม่" — ต่างจาก decision_types ที่ปิดด้วยเหตุนั้น
+        required_minimum:
+          - job
+          - execution
+          - tool_call
+          - artifact
+          - deployment
+          - record
+        record_means: >-
+          ยืมนิยามจาก event/v1 ทั้งดุ้น ไม่เขียนใหม่ — การที่สองสัญญาเรียกของเดียวกัน
+          คนละชื่อคือสิ่งที่ rfcs/0016 กำลังแก้ นิยามที่สองจะพามันกลับมา
+          · "บันทึกของโดเมนที่ระบบเก็บไว้และต้องตามรอยได้ แต่ไม่ได้เกิดจาก job
+          · ชนิดที่แท้จริงอยู่ใน metadata.record_type — platform ไม่รู้จักชนิดของโดเมน
+          และไม่ควรรู้ · แยกจาก artifact ซึ่งเป็นผลผลิตของ execution"
+        evidence: >-
+          agent-platform#73 — care-agent-platform เลือก artifact ให้คำสั่งหมอที่รอมีผล
+          และ tool_call ให้คำขอลบข้อมูล · ทั้งคู่ validate ผ่าน และ audit event
+          ของวัตถุเดียวกันใช้ subject_type record อยู่แล้ว
 
       guarantees:
         - decision เป็น immutable — แก้ไม่ได้หลังบันทึก
@@ -152,6 +198,71 @@ contracts:
           ผลที่ตามมา: "transition นี้เป็นคำตัดสินหรือไม่" ต้องดูที่ edge ไม่ใช่ที่ปลายทาง
           — GOVERNANCE_ANALYSIS → DRAFT เป็นคำตัดสิน ส่วน REJECTED → DRAFT ไม่ใช่
           (เป็นแค่ขั้นแก้ไขหลังคำตัดสินที่บันทึกไปแล้ว) · ดู states.DECISION_BY_EDGE
+
+    # ℹ️ นอก frozen — rfcs/0016 ขั้น 3 · เทียบสิ่งที่เรา freeze กับสัญญาที่ pin ไว้
+    carried_check:
+      target: approval/v1
+      schema: approval/v1/approval.schema.yaml
+      covers: [subject_types, required_meaning]
+      not_covered_yet: >-
+        guarantees · invariants · decision_types ของ approval ยังไม่ถูกเทียบ
+        · เขียนไว้ตรงนี้แทนที่จะปล่อยให้ดูเหมือนตรวจครบ — ของ event ใช้เวลาหนึ่งวัน
+        กว่าจะรู้ว่ามีข้อที่ไม่ได้ถูกพกมา เพราะไม่มีใครเทียบ ไม่ใช่เพราะเทียบแล้วผ่าน
+        · ทำต่อได้ทันทีที่มีคนลงมือ ไม่มีอะไรบล็อก
+      markers:
+        - anchor: คำตัดสิน (decision)
+          carried_as: decision
+          as_key: true
+        - anchor: เหตุผลที่ตัดสินอย่างนั้น (reason)
+          carried_as: reason
+          as_key: true
+        - anchor: ผู้มีอำนาจที่รับผิดชอบคำตัดสินนี้ (authority)
+          carried_as: authority
+          as_key: true
+        - anchor: เวลาที่ตัดสิน (timestamp)
+          carried_as: decided_at
+          as_key: true
+          note: >-
+            ชื่อ field เป็นของ agent-platform ตาม rfcs/0005 Rule 1 — ใบเราประกาศ
+            "ความหมายที่ต้องมี" ไม่ใช่ชื่อ · ที่เทียบคือความหมายมาถึงหรือเปล่า
+        - anchor: เกี่ยวกับอะไร (subject)
+          carried_as: subject
+          as_key: true
+          note: >-
+            approval/v1 มี subject ใน required อยู่แล้ว — ความหมายมาถึงก่อนที่ใบเรา
+            จะลิสต์มัน ซึ่งเป็นลำดับที่กลับหัวและเป็นเหตุให้ชุดค่าของมันหลุดไป
+        - anchor: job
+          carried_as: job
+          in_enum: true
+        - anchor: execution
+          carried_as: execution
+          in_enum: true
+        - anchor: tool_call
+          carried_as: tool_call
+          in_enum: true
+        - anchor: artifact
+          carried_as: artifact
+          in_enum: true
+        - anchor: deployment
+          carried_as: deployment
+          in_enum: true
+        - anchor: record
+          carried_as: record
+          in_enum: true
+          not_carried_yet:
+            since: "2026-09-18"
+            detail: >-
+              approval/v1 ที่ commit a5138dfe มี enum [job, execution, tool_call,
+              artifact, deployment] — ไม่มี record · consumer ที่ต้องอนุมัติบันทึก
+              ของโดเมนจึงต้องเลือกค่าที่ผิดน้อยที่สุด และเลือกไม่ตรงกันสองที่ในโดเมนเดียว
+            owner: agent-platform
+            why_theirs: rfcs/0005 Rule 1 — ถ้อยคำและโครงสร้างของสัญญาเป็นของเขา
+            issue: https://github.com/monthop-gmail/agent-platform/issues/73
+            expires: "2026-11-18"
+            expires_reason: >-
+              สองเดือนนับจากวันประกาศ semantics 1.4 — ยาวกว่าใบของ rfcs/0013
+              เพราะใบนี้เพิ่งยื่นวันนี้และยังไม่มี ADR ฝั่งเขารองรับ ต่างจากกรณีนั้น
+              ที่เขาลงมือก่อนเราจะรายงานด้วยซ้ำ
 
     platform_may_add_freely:
       # เพิ่มได้ผ่าน ADR ฝั่ง agent-platform อย่างเดียว ไม่ต้องมี RFC ที่นี่ (Rule 1)
@@ -336,6 +447,12 @@ contracts:
         และรายการที่ anchor ชี้ไปไม่ตรงกับข้อไหนเลยถือว่าผิด — สัญญาที่โตเกินกว่าที่ตรวจ
         ต้องแดง ไม่ใช่ผ่านเงียบ ๆ ทับของเดิม
       target: event/v1
+      schema: event/v1/event.schema.yaml
+      covers: [guarantees, invariants]
+      not_covered_yet: >-
+        event_types ไม่ถูกเทียบที่นี่โดยเจตนา — ใบเราเขียนไว้เองว่า enum และชื่อ field
+        ของ subject_type/event_type เป็นของ agent-platform (platform_may_add_freely)
+        · การเทียบมันจะเป็นการตรวจของที่เราไม่ได้เป็นเจ้าของ
       markers:
         - anchor: event เป็น append-only
           carried_as: append-only
