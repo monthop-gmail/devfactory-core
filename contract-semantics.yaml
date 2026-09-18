@@ -236,13 +236,37 @@ contracts:
     carried_check:
       target: approval/v1
       schema: approval/v1/approval.schema.yaml
-      covers: [subject_types, required_meaning, text_fields]
-      not_covered_yet: >-
-        guarantees · invariants · decision_types ของ approval ยังไม่ถูกเทียบ
-        · เขียนไว้ตรงนี้แทนที่จะปล่อยให้ดูเหมือนตรวจครบ — ของ event ใช้เวลาหนึ่งวัน
-        กว่าจะรู้ว่ามีข้อที่ไม่ได้ถูกพกมา เพราะไม่มีใครเทียบ ไม่ใช่เพราะเทียบแล้วผ่าน
-        · ทำต่อได้ทันทีที่มีคนลงมือ ไม่มีอะไรบล็อก
+      covers: [decision_types, subject_types, required_meaning, guarantees, invariants, text_fields]
+      # ไม่มี not_covered_yet แล้ว — เทียบครบทุกคีย์ใน frozen ตั้งแต่ 2026-09-18
+      # รอบก่อนเขียนไว้ว่า "ทำต่อได้ทันทีที่มีคนลงมือ ไม่มีอะไรบล็อก" · ลงมือแล้ว
+      # ผลคือทั้ง 7 ข้อถูกพกมาครบ — ซึ่งรู้ได้เพราะเทียบ ไม่ใช่เพราะเชื่อ
       markers:
+        - anchor: APPROVE
+          carried_as: APPROVE
+          in_enum: true
+        - anchor: REJECT
+          carried_as: REJECT
+          in_enum: true
+        - anchor: REQUIRE_CHANGES
+          carried_as: REQUIRE_CHANGES
+          in_enum: true
+        - anchor: decision เป็น immutable
+          carried_as: immutable
+        - anchor: ทุก APPROVE ต้อง auditable
+          carried_as: auditable
+        - anchor: execution ที่ไม่มี APPROVE
+          carried_as: ไม่มี APPROVE
+        - anchor: approval ไม่ใช่ policy
+          carried_as: approval ≠ policy
+          note: >-
+            เขาเขียนด้วย ≠ ไม่ใช่คำว่า "ไม่ใช่" — ถ้อยคำเป็นของเขาตาม rfcs/0005 Rule 1
+            สิ่งที่เทียบคือความหมายมาถึงหรือเปล่า ไม่ใช่ประโยคตรงกันหรือเปล่า
+        - anchor: decision ต้องอยู่ tenant เดียวกับ
+          carried_as: tenant เดียวกับ
+        - anchor: agent ออก APPROVE ให้งานของตัวเองไม่ได้
+          carried_as: total authority
+        - anchor: REQUIRE_CHANGES ไม่ใช่ REJECT
+          carried_as: REQUIRE_CHANGES ไม่ใช่ REJECT
         - anchor: คำตัดสิน (decision)
           carried_as: decision
           as_key: true
@@ -488,8 +512,8 @@ contracts:
       target: event/v1
       schema: event/v1/event.schema.yaml
       covers: [guarantees, invariants]
-      not_covered_yet: >-
-        event_types ไม่ถูกเทียบที่นี่โดยเจตนา — ใบเราเขียนไว้เองว่า enum และชื่อ field
+      not_covered_by_design: >-
+        event_types ไม่ถูกเทียบที่นี่โดยเจตนา และจะไม่ถูกเทียบ — ใบเราเขียนไว้เองว่า enum และชื่อ field
         ของ subject_type/event_type เป็นของ agent-platform (platform_may_add_freely)
         · การเทียบมันจะเป็นการตรวจของที่เราไม่ได้เป็นเจ้าของ
       markers:

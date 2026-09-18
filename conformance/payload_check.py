@@ -807,6 +807,9 @@ def covered_entries(contract: dict, covers: list[str]) -> list[str]:
             entries.extend(str(item) for item in value)
         elif isinstance(value, dict) and value.get("required_minimum"):
             entries.extend(str(item) for item in value["required_minimum"])
+        elif isinstance(value, dict) and value.get("values"):
+            # ชุดปิด — ทุกค่าเป็นข้อหนึ่ง เหมือนชุดเปิด ต่างกันแค่ว่าเพิ่มค่าได้ไหม
+            entries.extend(str(item) for item in value["values"])
         elif isinstance(value, dict) and value.get("declared"):
             entries.extend(str(entry["leaf"]) for entry in value["declared"])
     return entries
@@ -900,12 +903,16 @@ def check_carried(pinned: dict, today: str) -> None:
         if not covers:
             fail("carried", f"{target}: carried_check ไม่บอกว่า covers อะไร")
             continue
+        # "ยังไม่ได้ทำ" กับ "ตั้งใจไม่ทำ" ต้องแยกกัน — ไม่งั้นคนที่ไล่เก็บงานค้าง
+        # จะหยิบข้อที่ตั้งใจเว้นไว้ถาวรขึ้นมาทำ แล้วไปตรวจของที่ไม่ใช่ของเรา
         uncovered = [key for key in frozen if key not in covers]
-        if uncovered and not declaration.get("not_covered_yet"):
+        excused = declaration.get("not_covered_yet") or declaration.get("not_covered_by_design")
+        if uncovered and not excused:
             fail(
                 "carried",
-                f"{target}: ไม่ได้เทียบ {uncovered} และไม่ได้เขียนว่ายังไม่เทียบ "
-                f"— ต้องมี not_covered_yet ไม่งั้นอ่านเหมือนตรวจครบ",
+                f"{target}: ไม่ได้เทียบ {uncovered} และไม่ได้เขียนว่าเพราะอะไร "
+                f"— ต้องมี not_covered_yet (ยังไม่ทำ) หรือ not_covered_by_design (ตั้งใจไม่ทำ) "
+                f"ไม่งั้นอ่านเหมือนตรวจครบ",
             )
             continue
 
@@ -914,7 +921,11 @@ def check_carried(pinned: dict, today: str) -> None:
         broken = False
         for marker in markers:
             anchor_text = str(marker.get("anchor") or "")
-            matched = [e for e in entries if e.startswith(anchor_text)] if anchor_text else []
+            # ตรงทั้งข้อชนะการตรงแค่ต้นข้อ — ค่าในชุดปิดอย่าง REQUIRE_CHANGES
+            # เป็นต้นของ invariant "REQUIRE_CHANGES ไม่ใช่ REJECT" ด้วย และการบังคับ
+            # ให้เขียน anchor ยาวขึ้นเพื่อหนีความกำกวมจะทำให้ anchor ไม่ใช่ชื่อของข้ออีกต่อไป
+            exact = [e for e in entries if e == anchor_text] if anchor_text else []
+            matched = exact or ([e for e in entries if e.startswith(anchor_text)] if anchor_text else [])
             if len(matched) != 1:
                 fail(
                     "carried",
