@@ -105,6 +105,39 @@ remaining:
     ประตูที่ยังเปิดคือทางที่ข้ามมันไป
     · ปิดให้ครบต้องมี registry ของ job ซึ่งต้องมี durable store ก่อน
     — งานเดียวกับ trigger ของ issue #32 และ checkpoint ที่ rfcs/0012 Decision 4 ระบุไว้
+# ADR-0034 ข้อ 7 ของ agent-platform — เมื่อ semantics_version ขยับ และ "ขอบเขต"
+# ของ invariant เปลี่ยน ผู้ผลิตต้องตอบว่าตัวตรวจของตัวเองครอบขอบเขตใหม่แล้วหรือยัง
+#
+# กฎนี้มาจาก care-agent-platform ซึ่งพิสูจน์มันในรอบเดียวกัน — เขาขยายตัวไล่ leaf
+# ให้ครอบใบอนุมัติหลัง rfcs/0017 แล้วมันฟ้อง $.authority.display_name ในรอบแรก
+#
+# เราเป็นทั้งเจ้าของ semantics และผู้ผลิต event จึงต้องตอบข้อนี้เหมือนคนอื่น
+# · "ไม่มีอะไรต้องทำ" กับ "ยังไม่ได้ดู" หน้าตาเหมือนกันถ้าไม่เขียน
+scope_change_answers:
+  - semantics_version: "1.5"
+    rfc: rfcs/0017-the-leaf-rule-is-not-a-property-of-one-contract.md
+    scope_change: >-
+      กฎ leaf เลิกเป็นคุณสมบัติของ event/v1 — ผูกทุกสัญญาที่ semantics เป็นของ repo นี้
+      · payload ชนิดใหม่ที่ต้องถูกไล่คือใบอนุมัติ (approval/v1)
+    checker_covers_it: true
+    how_we_know: >-
+      ไล่จริง ไม่ได้อนุมาน · สร้าง Principal ที่พา display_name มาทั้งผู้ยื่นและผู้อนุมัติ
+      แล้วดู payload ที่ออกมา — authority เหลือ {type, id} · leaf ที่ลงท้าย
+      display_name = 0 · check_text_fields ผ่าน
+    why_it_was_already_covered: >-
+      (1) การตัด display_name เป็น recursive จากจุดเดียวใน Principal.as_payload
+      จึงครอบ authority และ on_behalf_of ที่ซ้อนกันโดยไม่ต้องไล่ทีละเส้นทาง
+      · (2) Decision.as_payload() ถูกเรียกที่เดียวคือตอนฝังลง metadata.approval
+      ของ event — ใบอนุมัติแบบยืนเดี่ยวกับใบที่ฝังอยู่จึงเป็นออบเจกต์เดียวกัน
+      และตัวไล่ leaf ที่เดินบน event เดินครบอยู่แล้ว
+    what_guards_it: >-
+      packages/core/tests/test_decisions.py — assert decision_event["metadata"]["approval"]
+      == record.as_payload() · ล็อกว่ามีทางเรนเดอร์ทางเดียว
+    honest_limit: >-
+      ข้อ (2) เป็นผลพลอยได้จากการที่ยังไม่มี control API ไม่ใช่การออกแบบ
+      · วันที่มีปลายทางที่สอง จะมีทางเรนเดอร์ที่สอง และเทสต์ข้างบนจะไม่รู้เรื่อง
+      เว้นแต่ทางใหม่เขียนทับ metadata.approval ด้วย — ต้องกลับมาตอบข้อนี้ใหม่ตอนนั้น
+
 registration: conforming   # registered | conforming
 
 # ช่องว่างที่ค้างอยู่ฝั่ง contract ไม่ใช่ฝั่ง implementation
