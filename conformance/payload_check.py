@@ -724,7 +724,9 @@ def check_manifests() -> None:
     import yaml
 
     expected = {
-        "platform-contract.yaml": ["contracts", "conformance", "registration"],
+        # scope_change_answers — ADR-0034 ข้อ 7 · คีย์นี้ต้องมีอยู่ เพราะการหายไปของมัน
+        # อ่านไม่ต่างจากการไม่เคยมี และนั่นคือสิ่งที่กฎข้อนั้นห้ามพอดี
+        "platform-contract.yaml": ["contracts", "conformance", "registration", "scope_change_answers"],
         "contract-semantics.yaml": ["semantics_version", "contracts"],
         "conformance/pinned.yaml": ["repo", "commit", "pinned_at", "schemas"],
     }
