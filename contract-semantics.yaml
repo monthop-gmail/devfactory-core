@@ -312,20 +312,8 @@ contracts:
         - anchor: record
           carried_as: record
           in_enum: true
-          not_carried_yet:
-            since: "2026-09-18"
-            detail: >-
-              approval/v1 ที่ commit a5138dfe มี enum [job, execution, tool_call,
-              artifact, deployment] — ไม่มี record · consumer ที่ต้องอนุมัติบันทึก
-              ของโดเมนจึงต้องเลือกค่าที่ผิดน้อยที่สุด และเลือกไม่ตรงกันสองที่ในโดเมนเดียว
-            owner: agent-platform
-            why_theirs: rfcs/0005 Rule 1 — ถ้อยคำและโครงสร้างของสัญญาเป็นของเขา
-            issue: https://github.com/monthop-gmail/agent-platform/issues/73
-            expires: "2026-11-18"
-            expires_reason: >-
-              สองเดือนนับจากวันประกาศ semantics 1.4 — ยาวกว่าใบของ rfcs/0013
-              เพราะใบนี้เพิ่งยื่นวันนี้และยังไม่มี ADR ฝั่งเขารองรับ ต่างจากกรณีนั้น
-              ที่เขาลงมือก่อนเราจะรายงานด้วยซ้ำ
+          # ปิดที่ต้นทาง 2026-09-20 — approval/v1 v1.3.0 · เข้า enum แล้ว
+          # ใช้เวลา 2 วันจากที่ยื่น ไม่ใช่ 2 เดือนที่เผื่อไว้
 
     platform_may_add_freely:
       # เพิ่มได้ผ่าน ADR ฝั่ง agent-platform อย่างเดียว ไม่ต้องมี RFC ที่นี่ (Rule 1)
@@ -545,24 +533,10 @@ contracts:
           carried_as: trace ที่ไม่มี step
         - anchor: leaf ที่อาจถือข้อความของคน
           carried_as: leaf
-          not_carried_yet:
-            since: "2026-09-17"
-            detail: >-
-              event/v1 v1.7.1 ที่ commit a5138dfe ประกาศ semantics_version "1.3"
-              และใส่ rfcs/0013 ไว้ใน derived_from.rfcs แล้ว แต่ทั้งเอกสารไม่มีคำว่า
-              leaf · ไม่มีข้อใน guarantees.rules · ไม่มีใน platform_rules
-              — อ้างถึงแล้ว แต่ยังไม่ได้พกมา
-            owner: agent-platform
-            why_theirs: rfcs/0005 Rule 1 — ถ้อยคำและโครงสร้างของสัญญาเป็นของเขา
-            issue: https://github.com/monthop-gmail/agent-platform/issues/74
-            expires: "2026-10-31"
-            expires_reason: >-
-              วันเดียวกับ backstop ของ issue #32 ไม่ใช่การประเมินว่างานใช้เวลาเท่านั้น
-              · เลื่อนได้ถ้าเขาขอ แต่ต้องเขียนเหตุผลลงตรงนี้ ไม่ใช่ขยับตัวเลขเฉย ๆ
-            acceptable_answer: >-
-              "ไม่ควรพกมา" เป็นคำตอบที่ถูกได้จริง — ตัวใบเขียนเองว่ากฎนี้บังคับได้
-              เฉพาะฝั่งผู้ผลิต · ถ้าเขาตอบแบบนั้นพร้อมเหตุผล รายการนี้เปลี่ยนเป็น
-              ours_only เหมือนข้อ job_id ไม่ใช่ค้างเป็นช่องว่างต่อไป
+          # ช่องว่างถูกปิดที่ต้นทาง 2026-09-20 — event/v1 v1.8.0 (agent-platform#77)
+          # พกกฎเข้า guarantees พร้อมประกาศ transition.reason เป็น leaf แรกที่ถือ
+          # ข้อความของคน · ถอด not_carried_yet ออกตามกฎในเช็คเอง: waiver ที่ค้างอยู่
+          # หลังเหตุถูกแก้แล้ว จะกลืนการหายครั้งถัดไปที่จุดเดียวกัน
 
     # ℹ️ rfcs/0015 — ข้อความใน external event เป็นของผู้ผลิต ไม่ใช่ของเรา
     # อยู่นอก frozen เพราะเป็นการประกาศฝั่งเรา ไม่ใช่ส่วนหนึ่งของสัญญา
