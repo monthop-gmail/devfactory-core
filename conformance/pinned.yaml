@@ -5,7 +5,7 @@
 
 repo: monthop-gmail/agent-platform
 ref: main
-commit: 634f2ebad3a3315acce754eb3434206520a6bdbd
+commit: 7c229955f722a1581ff9a47d6f43b67b81507ff9
 pinned_at: "2026-09-20"
 
 # contract ที่ platform-contract.yaml pin ไว้ และไฟล์ที่ต้องมีใน registry เพื่อ resolve $ref
