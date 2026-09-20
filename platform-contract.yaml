@@ -19,7 +19,7 @@ contracts:
 
 conformance:
   status: passing
-  last_verified: 2026-09-18   # รันกับ pin a5138dfe — passed=68 FAIL=0
+  last_verified: 2026-09-20   # รันกับ pin 634f2eba — passed=70 FAIL=0
 
   # ADR-0006 บังคับ consumer 3 ข้อ — ครบแล้วทั้งสาม:
   #   1. manifest        ไฟล์นี้
@@ -44,7 +44,7 @@ conformance:
   # ตอบได้เสมอ · ไม่ปลอม job_id · reject tenant ที่ resolve ไม่ได้ · คง source
   # ของ external · ไม่เก็บ reasoning · tenant partition ไม่ปนกัน
 
-pinned_contracts_commit: a5138dfe8f152756a789c43495e95eb64f82dafb   # conformance/pinned.yaml
+pinned_contracts_commit: 634f2ebad3a3315acce754eb3434206520a6bdbd   # conformance/pinned.yaml
 
 # ช่องว่างจาก consumer pilot ของ agent-platform และ RFC ที่ปิดแต่ละข้อ
 # รายละเอียดเต็ม: agent-platform/architecture/consumer-devfactory-core.md
@@ -183,8 +183,14 @@ gaps:
       สองทาง: (1) พกกฎมา ถ้อยคำเป็นของ agent-platform ตาม rfcs/0005 Rule 1
       · (2) บอกว่าไม่ควรพกมาพร้อมเหตุผล แล้วเราเปลี่ยนเป็น ours_only
       — ข้อ 2 ถูกได้จริง เพราะตัว invariant เขียนเองว่ากฎนี้บังคับได้เฉพาะฝั่งผู้ผลิต
-    severity: low   # ไม่มี payload ไหน validate ไม่ผ่านเพราะข้อนี้ · เป็นเรื่องความครบของสัญญา
-    status: open
+    resolved_by: >-
+      agent-platform#77 — event/v1 v1.8.0 พกกฎเข้า guarantees พร้อมประกาศ
+      transition.reason เป็น leaf แรกที่ถือข้อความของคน (ADR-0034)
+      · ทำเกินที่เราขอ: เราขอแค่ให้พก invariant มา
+    status: resolved   # ปิดที่ต้นทาง 2026-09-20 · ถอด waiver ออกพร้อม bump pin
+    note: >-
+      เช็คของเราเป็นคนบอกให้ถอด — กฎ "พกมาแล้วแต่ยังมี not_carried_yet ค้างอยู่ → แดง"
+      ฟ้องทันทีที่ bump pin · ไม่ต้องมีใครจำว่าต้องกลับมาเก็บ
 
   - id: approval-subject-type-has-no-record
     issue: https://github.com/monthop-gmail/agent-platform/issues/73   # เปิด 2026-09-18
@@ -203,5 +209,7 @@ gaps:
     workaround: >-
       บันทึกเป็น not_carried_yet ใน contract-semantics.yaml → approval.carried_check
       · CI เราเทียบ enum ของสัญญาที่ pin ไว้ทุกรอบ และจะเขียวเองเมื่อค่านี้เข้าไป
-    severity: low   # ไม่มี payload ไหน validate ไม่ผ่าน · เป็นเรื่องความหมายที่เพี้ยนแบบเงียบ
-    status: open
+    resolved_by: >-
+      agent-platform#77 — approval/v1 v1.3.0 · record เข้า enum ของ $.subject.type
+      แล้ว · ใช้เวลาสองวันจากที่ยื่น ไม่ใช่สองเดือนที่เผื่อไว้
+    status: resolved   # ปิดที่ต้นทาง 2026-09-20
