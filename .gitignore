@@ -10,3 +10,15 @@ dist/
 .venv/
 venv/
 conformance/.schema_cache/
+
+# เครื่องมือประจำเครื่อง ไม่ใช่ของ repo
+#
+# ⚠️ .mcp.json ถือ Authorization header อยู่จริง — ไม่เคยถูก commit เข้าประวัติ
+# (ตรวจแล้วทั้ง --all) แต่ที่ผ่านมารอดเพราะวินัยในการพิมพ์ `git add -A -- <path>`
+# ไม่ใช่เพราะมีอะไรกันไว้ · วินัยไม่ใช่กลไก
+#
+# ecosystem-intelligence เพิ่งโดนรูปนี้เมื่อ 2026-09-17 — commit ของเขาเขียนว่า
+# "เอา .mcp.json ออกจาก repo — เผลอ add -A ติดเข้ามา" · การเอาออกทีหลัง
+# ไม่ได้เอาออกจากประวัติ และ credential ที่เคยขึ้น remote ถือว่ารั่วแล้ว
+.mcp.json
+.claude/
