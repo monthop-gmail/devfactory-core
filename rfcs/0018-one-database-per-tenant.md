@@ -1,7 +1,7 @@
 # RFC-0018: One Database Per Tenant
 
 ## Status
-Draft — เสนอ 2026-09-22 · จะเป็น `Accepted` เมื่อ merge ตาม `CONTRIBUTING.md`
+Accepted — เสนอ 2026-09-22 · merged to `main` 2026-09-22 in [#58](https://github.com/monthop-gmail/devfactory-core/pull/58)
 
 [RFC-0014](0014-durable-event-store.md) Migration Plan **ขั้น 4** — the durable
 implementation, in its own RFC, because choosing one is an architecture change.
