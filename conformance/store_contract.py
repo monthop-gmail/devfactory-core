@@ -275,6 +275,70 @@ def factory_digest(factory, records: list[tuple[str, str]]) -> str:
     return store.digest(records[0][1])
 
 
+def check_serialised(factory) -> None:
+    """Concurrent writers to one tenant do not fork the digest — RFC-0014 Decision 5.
+
+    Written after a durable prototype made the failure reproducible. Four threads
+    appending to one SQLite-backed tenant with no transaction around
+    read-tip-then-insert produced **every record, no errors, and a digest chain
+    forked in five places**. Nothing looked wrong. That is the failure the
+    decision predicted: a hash chain over a racing order agrees by luck or reports
+    scheduling, and either way stops meaning "this history is untouched".
+
+    The assertion is written without knowing how a digest is built: take the order
+    the store itself reports, replay exactly that into a fresh store one at a
+    time, and require the two digests to match. A store that serialises gets the
+    same answer both ways. One that does not, does not.
+
+    The in-memory reference passes by construction — it computes the digest from
+    its list on every call, so there is no stored chain to fork. That is what a
+    ratchet looks like before the thing it prevents exists.
+    """
+    import threading
+
+    area = "obligation-5-concurrent"
+    store = factory()
+    errors: list[BaseException] = []
+
+    def writer(batch: int) -> None:
+        try:
+            for i in range(25):
+                store.append(event(f"c-{batch}-{i}", "acme"))
+        except BaseException as exc:  # noqa: BLE001 — รายงาน ไม่ใช่กลืน
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer, args=(b,)) for b in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    if errors:
+        print(f"  note  {area}: ผู้เขียนพร้อมกันได้ {type(errors[0]).__name__} — {str(errors[0])[:60]}")
+
+    landed = store.read("acme")
+    if len(landed) == store.count("acme") == 100 and not errors:
+        ok(area, "ผู้เขียนพร้อมกัน 4 ราย × 25 ใบ ลงครบ 100 ไม่ซ้ำไม่หาย")
+    elif not errors:
+        fail(area, f"เขียน 100 ใบพร้อมกัน แต่ได้ {len(landed)} ใบ · count={store.count('acme')}")
+        return
+    else:
+        fail(area, f"ผู้เขียนพร้อมกันล้มเหลว: {type(errors[0]).__name__}")
+        return
+
+    # ลำดับที่ store บอกเอง → เล่นซ้ำทีละใบเข้า store ใหม่ → digest ต้องตรงกัน
+    replay = factory()
+    replay.extend(landed)
+    if replay.digest("acme") == store.digest("acme"):
+        ok(area, "digest ของการเขียนพร้อมกัน เท่ากับการเขียนทีละใบตามลำดับที่มันรายงาน")
+    else:
+        fail(
+            area,
+            "digest ไม่ตรงกับการเล่นซ้ำตามลำดับที่ store รายงานเอง "
+            "— โซ่แตกระหว่างผู้เขียนพร้อมกัน · rfcs/0014 Decision 5",
+        )
+
+
 CHECKS = {
     1: check_append_only,
     2: check_tenant_isolation,
@@ -282,6 +346,10 @@ CHECKS = {
     4: check_idempotent,
     5: check_digest,
 }
+
+# ข้อ 5 มีสองด้าน — รูปของ digest (check_digest) และการเขียนพร้อมกัน
+# ตัวหลังแยกออกมาเพราะมันต้องสร้าง store สองตัวและใช้เธรด ไม่ใช่เพราะเป็นข้ออื่น
+EXTRA_CHECKS = {5: check_serialised}
 
 
 def resolve(spec: str):
@@ -331,6 +399,8 @@ def main() -> int:
     for obligation in OBLIGATIONS:
         print(f"\n[{obligation.number}] {obligation.title} — {obligation.source}")
         CHECKS[obligation.number](factory)
+        if obligation.number in EXTRA_CHECKS:
+            EXTRA_CHECKS[obligation.number](factory)
 
     fails = [f for f in findings if f[0] == "FAIL"]
     print("\n" + "=" * 70)

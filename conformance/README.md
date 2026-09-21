@@ -146,7 +146,16 @@ one added later runs the same suite with `--implementation` and fails here inste
 of in production.
 
 `OBLIGATIONS` is the written contract and the suite pairs every entry with a check
-by number, refusing to run if one has no check. A sixth obligation added to the
+by number, refusing to run if one has no check.
+
+Obligation 5 has two checks, because it has two halves: the shape of a digest, and
+whether concurrent writers can fork one. The second was added after a throwaway
+SQLite-backed prototype made the failure reproducible — four threads appending to
+one tenant with no transaction around read-tip-then-insert produced **every
+record, no errors, and a chain forked in five places**. It is asserted without
+knowing how any particular digest is built: take the order the store itself
+reports, replay exactly that into a fresh store one at a time, and require the two
+digests to match. A sixth obligation added to the
 declaration and nowhere else turns the run red rather than passing over five.
 
 **It found something on its first run.** The reference implementation kept one set
