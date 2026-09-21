@@ -95,6 +95,31 @@ independently arrived at for its own vendored schemas.
 | 4 | **Idempotent by `event_id` within a tenant.** Re-appending a record that tenant already holds is refused, not duplicated. | `EventLog.append` today, and issue #32 depends on it |
 | 5 | **A digest over the append order of one tenant.** | RFC-0012 Decision 4 |
 
+> **Correction (2026-09-20).** Obligation 4 was written assuming an `event_id`
+> identifies **one occurrence**. For `ecosystem-intelligence` it does not — it
+> identifies a **record identity**, declared and frozen at
+> [`event_id_derivation`](https://github.com/monthop-gmail/ecosystem-intelligence/blob/main/platform-contract.yaml):
+> `rule` + `subject` for a drift, `team` + `question` + `title` + `priority` +
+> `references` for an advisory. Wording, timestamps, and `sequence` are excluded
+> on purpose.
+>
+> Two consequences a store implementer has to know, neither of them a defect:
+>
+> 1. **A re-worded advisory does not land.** Same identity, same id, refused —
+>    the store keeps the *original* wording. The producer chose this and says so
+>    in the declaration.
+> 2. **A condition that was fixed and recurs is invisible.** Byte-identical
+>    content, same id, refused as already held. The log answers *which records
+>    are true*, not *how many times each became true*.
+>
+> The second is answered in Open Questions rather than here, because it is a
+> question about what this log is for.
+>
+> None of this was knowable when the obligation was written. It became knowable
+> because `ecosystem-intelligence` measured their own emitter before answering —
+> and found that on the day we asked, the promise would have been false: changing
+> `as_of`, a date unrelated to the advice, moved every id in the batch.
+
 Obligation 4 is load-bearing beyond this repository. The #32 thread established
 that re-reading a producer's whole feed is safe **because** duplicates are refused
 at our boundary — which is what allows a consumer to skip keeping a cursor, and
@@ -248,11 +273,39 @@ Steps 2 and 3 are inside v0.x. Step 4 is not, and this RFC does not smuggle it i
 
 ## Open Questions
 
+- **Should a condition that recurs be visible in the log?** ~~Unasked when this
+  RFC was written.~~ **Raised 2026-09-20 by `ecosystem-intelligence`, and left
+  open on purpose.**
+
+  Their `ECOSYSTEM_DRIFT_DETECTED` identity is `rule` + `subject`. A drift still
+  present next round produces the same id and is refused, which is right — a log
+  that records *still true* every round is noise. A drift that was fixed and came
+  back produces the same id too, and is refused, which loses a real transition.
+
+  They offered to add a discriminator and asked which we want. **The answer is not
+  to widen the identity**, and the reason is the promise they had just made: an id
+  must be stable *across emitter rewrites*. An episode counter is the producer
+  remembering its own history, which is exactly what does not survive a rewrite —
+  the discriminator would cost the guarantee that makes obligation 4 worth having.
+
+  What is actually missing is not a wider id but the **other transition**: nothing
+  is emitted when a finding stops being true. With that, the trail carries the
+  shape and identity stays narrow. That is a change to their emitter, not to this
+  store, and nobody has asked for it — no consumer has needed to count
+  recurrences. Left open on the terms RFC-0015 and RFC-0016 used: decided when a
+  consumer hits it, not before.
+
 - **Does the checkpoint for a running trail need anything beyond `digest()`?** A
   digest says *the prefix I hold has not changed*. It does not say *I hold
   everything written*. Closing the second one may need the store to report its own
   append count per tenant — cheap to add, and worth deciding with the first
   implementation rather than now.
+
+  **Answered 2026-09-20 for the half that depended on someone else.**
+  `ecosystem-intelligence` made the content-bound `event_id` a frozen promise, so
+  re-reading a producer's whole feed is idempotent by contract rather than by
+  luck. `digest()` plus an append count is enough; **no cursor is needed.** What
+  remains open is only the append count itself, which is ours.
 - **Where does the record of a tenant erasure live?** Decision 4 requires it to sit
   above the erased partition and does not name the scope. It is answerable only
   alongside a concrete store.
