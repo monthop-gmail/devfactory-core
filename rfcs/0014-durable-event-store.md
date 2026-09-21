@@ -264,12 +264,22 @@ boundary that is already physical.
    any implementation. The in-memory one passes it on day one, which is what makes
    it a reference rather than a special case.
 4. A durable implementation, in its own RFC, since choosing one is an architecture
-   change under `CONTRIBUTING.md`.
+   change under `CONTRIBUTING.md`. — **[RFC-0018](0018-one-database-per-tenant.md),
+   accepted 2026-09-22: one SQLite database per tenant.** It closes the three open
+   questions below that this RFC said were answerable only alongside a concrete
+   store, and it was written after a throwaway prototype passed the step-3 suite,
+   which is the first evidence that suite is not a description of the in-memory
+   implementation.
 5. On that landing: the constructor closes the rest of RFC-0007 Amendment 2, the
    retention layer in `contract-semantics.yaml` is restated, and #32's trigger
    fires.
 
 Steps 2 and 3 are inside v0.x. Step 4 is not, and this RFC does not smuggle it in.
+
+Accepting RFC-0018 decided *which* store without moving that line: nothing is
+implemented while `CORE_BOUNDARY.md` reads as it does. **Step 5 is therefore not
+blocked on design, on the contract, or on another team — it is blocked on the
+question of when `v0.x` ends, which nobody has asked yet.**
 
 ## Open Questions
 
