@@ -1010,14 +1010,27 @@ def check_text_fields(log) -> None:
         fail("text", "contract-semantics.yaml ไม่มีบล็อก text_fields — checker ไม่มีอะไรให้อ่าน")
         return
 
+    # ใครเป็นคนเขียน metadata ของใบขาเข้าแต่ละราย — rfcs/0015 ยกเว้นการไล่ leaf
+    # ใต้ metadata ได้เฉพาะกับผู้ผลิตที่เราประกาศแทนไม่ได้ · ใบที่ metadata
+    # เป็นของเราเอง (fixture) ไม่ได้อยู่ในเหตุผลนั้นเลย และต้องโดนกฎเต็มรูป
+    authorship = {
+        entry.get("system"): entry.get("metadata_authored_by")
+        for entry in (load_external_declaration().get("producers") or [])
+    }
+
     seen: dict[str, int] = {}
     external_seen: dict[str, int] = {}
     for tenant in log.tenants():
         for payload in log.payloads(tenant):
-            target = external_seen if is_external(payload) else seen
+            inbound = is_external(payload)
+            system = (payload.get("source") or {}).get("system") if inbound else None
+            # metadata ที่เราเขียนเอง นับรวมกับใบที่เราเขียน ไม่ใช่ใบขาเข้า
+            ours = not inbound or authorship.get(system) == "us"
             for path, value in leaf_paths(payload):
-                if isinstance(value, str) and value:
-                    target[path] = target.get(path, 0) + 1
+                if not (isinstance(value, str) and value):
+                    continue
+                target = seen if ours else external_seen
+                target[path] = target.get(path, 0) + 1
 
     undeclared = sorted(set(seen) - declared - pointers)
     if undeclared:
@@ -1099,6 +1112,17 @@ def check_external_producers(log, today: str) -> None:
     if not systems:
         print("  note  external: ไม่มี external event ใน scenario — ไม่มีผู้ผลิตให้ตรวจ")
         return
+
+    missing_authorship = sorted(
+        system for system in systems
+        if producers.get(system) and not producers[system].get("metadata_authored_by")
+    )
+    if missing_authorship:
+        fail(
+            "external",
+            f"ผู้ผลิตที่ไม่ได้บอกว่าใครเขียน metadata: {missing_authorship} "
+            f"— ต้องมี metadata_authored_by (us | producer) ไม่งั้นตัวไล่ leaf ข้ามของที่เราเขียนเอง",
+        )
 
     unknown = sorted(set(systems) - set(producers))
     if unknown:

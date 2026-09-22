@@ -552,12 +552,24 @@ contracts:
         ถ้าประกาศ field ของเขาในใบเรา schema เขาขยับทีนึง CI เราแดงจนกว่าจะตามแก้
         · และทำให้เรายืนยันว่า metadata.why ถืออะไรและกฎการเก็บอยู่ชั้นไหน
         ทั้งที่ไม่ได้เขียนมันเอง — คำตอบที่มั่นใจแต่ผิด แย่กว่าช่องว่างที่เห็น
+      metadata_authorship: >-
+        ทุกรายการต้องบอก metadata_authored_by — "producer" คือ metadata เป็นของเขา
+        เราประกาศแทนไม่ได้ ตรวจที่ระดับผู้ผลิต · "us" คือเราเป็นคนเขียน metadata นั้นเอง
+        (fixture หรือ event ที่เราสังเคราะห์) กฎ leaf ตาม rfcs/0013 จึงใช้เต็มรูป
+        เหมือน event ที่เราปล่อยเอง
+        · ⚠️ ข้อนี้เพิ่มเมื่อ 2026-09-22 หลัง event/v1 v1.8.1 เขียนกฎว่า
+        "การประกาศแบบ wildcard กลืน ratchet ของตัวเอง" (ที่มา botforge)
+        แล้วเราเอาคำถามเดียวกันมาถามตัวเอง — ใบเราไม่มี wildcard แต่ตัวตรวจข้าม
+        ทุก leaf ใต้ metadata ของใบขาเข้า ซึ่งเป็น wildcard ที่ย้ายไปอยู่ในโค้ดแทน
+        · ประโยคใน retention_layer ของ navi-ims บอกเองว่า "กฎ leaf ใช้เต็มรูป"
+        ขณะที่ตัวตรวจไม่ได้ใช้เลย — ใบพูดอย่าง เช็คทำอีกอย่าง
       what_we_still_owe: >-
         rfcs/0015 Decision 3 — ห้ามคัดค่าจาก metadata ของ external event
         ไปใส่ field ที่ repo นี้เขียน · เราบังคับไม่ได้ว่าข้อความของเขามีอะไร
         แต่บังคับได้ว่าเราไม่เป็นเหตุให้มันกระจาย
       producers:
         - system: ecosystem-intelligence
+          metadata_authored_by: producer
           declaration: https://github.com/monthop-gmail/ecosystem-intelligence/blob/main/platform-contract.yaml
           declares: >-
             text_fields → $.metadata.question (ADVISORY_ISSUED) · written_by: human
@@ -611,6 +623,7 @@ contracts:
           # "ไม่มีอะไรรัน" ไม่ใช่ "รันแล้วไม่เจอ" · ต่างกันตรงที่รอบนี้เราเอาไป
           # เขียนลงใบของตัวเองและบอกทีมอื่นด้วย (issue #32) — แก้ทั้งสองที่แล้ว
         - system: navi-ims
+          metadata_authored_by: us
           declaration: n/a — fixture
           checked_at: "2026-09-18"
           evidence: >-
