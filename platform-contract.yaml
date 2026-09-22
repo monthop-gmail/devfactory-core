@@ -19,7 +19,7 @@ contracts:
 
 conformance:
   status: passing
-  last_verified: 2026-09-20   # รันกับ pin 7c229955 — passed=70 FAIL=0
+  last_verified: 2026-09-22   # รันกับ pin ba0a35e3 — passed=70 FAIL=0
 
   # ADR-0006 บังคับ consumer 3 ข้อ — ครบแล้วทั้งสาม:
   #   1. manifest        ไฟล์นี้
@@ -44,7 +44,7 @@ conformance:
   # ตอบได้เสมอ · ไม่ปลอม job_id · reject tenant ที่ resolve ไม่ได้ · คง source
   # ของ external · ไม่เก็บ reasoning · tenant partition ไม่ปนกัน
 
-pinned_contracts_commit: 7c229955f722a1581ff9a47d6f43b67b81507ff9   # conformance/pinned.yaml
+pinned_contracts_commit: ba0a35e35cedb534c5ea91de73a9d385d025e22b   # conformance/pinned.yaml
 
 # ช่องว่างจาก consumer pilot ของ agent-platform และ RFC ที่ปิดแต่ละข้อ
 # รายละเอียดเต็ม: agent-platform/architecture/consumer-devfactory-core.md

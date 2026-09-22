@@ -5,8 +5,8 @@
 
 repo: monthop-gmail/agent-platform
 ref: main
-commit: 7c229955f722a1581ff9a47d6f43b67b81507ff9
-pinned_at: "2026-09-20"
+commit: ba0a35e35cedb534c5ea91de73a9d385d025e22b
+pinned_at: "2026-09-22"
 
 # contract ที่ platform-contract.yaml pin ไว้ และไฟล์ที่ต้องมีใน registry เพื่อ resolve $ref
 # event/v1 อ้างถึง identity · policy · capability · model · error จึงต้องดึงมาทั้งชุด
