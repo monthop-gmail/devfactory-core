@@ -165,6 +165,21 @@ refused tells you another tenant holds it. Scoping the set per tenant changed no
 test that existed — `event_id` is unique by construction, so nothing had ever
 exercised the case. See the correction in RFC-0014 Decision 2.
 
+The exemption is scoped by **who wrote the metadata**, not by whether a record
+arrived from outside. Each producer entry says `metadata_authored_by: us` or
+`producer`, and only `producer` skips the leaf walk — a fixture whose metadata this
+repository writes goes through the ordinary rule like anything else we emit. An
+entry that does not say fails.
+
+That scoping was missing until 2026-09-22. `event/v1` v1.8.1 added a rule that a
+wildcard declaration swallows its own ratchet — `botforge` found it while drafting,
+by asking what their own declaration left the ratchet to catch. Asking the same
+question here found the same shape in a different place: the manifest has no
+wildcard, but the checker skipped every leaf under `metadata.` on any inbound
+record, which is a wildcard moved into code. A Thai sentence naming a person and
+their symptoms, written by our own fixture, passed every check green — while the
+`navi-ims` entry said in so many words that the leaf rule applied to it in full.
+
 Why this is not in `payload_check.py`: that file validates **payloads** against
 pinned upstream contracts, and these obligations are about the **store**, owned
 here, with no schema upstream to validate against. Mixing them would make one red
